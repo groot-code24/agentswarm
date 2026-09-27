@@ -49,4 +49,10 @@ describe("storage backend", () => {
     expect(storageBackend()).toBe("s3");
     expect(queueCapBytes()).toBe(1024 * 1024 * 1024);
   });
+
+  it("reports a missing clip file clearly, and treats deleting it as done", async () => {
+    const { getObject, deleteObject, ClipMissingError } = await import("../lib/storage");
+    await expect(getObject("clips/does-not-exist.mp4")).rejects.toBeInstanceOf(ClipMissingError);
+    await expect(deleteObject("clips/does-not-exist.mp4")).resolves.toBeUndefined();
+  });
 });

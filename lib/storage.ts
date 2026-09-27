@@ -18,6 +18,30 @@ export function storageBackend(): StorageBackend {
   return features.s3 ? "s3" : features.blob ? "blob" : "local";
 }
 
+/** The clip's file isn't in storage (e.g. it was uploaded by a local copy of the app, to that computer's disk). */
+export class ClipMissingError extends Error {
+  constructor(key: string) {
+    super(
+      `The clip file isn't in ${storageBackend() === "local" ? "local" : "cloud"} storage (${key.split("/").pop()}). ` +
+        "It was probably uploaded from a different copy of the app (e.g. localhost). Cancel this post and upload the video again here.",
+    );
+  }
+}
+
+function isNotFound(err: unknown): boolean {
+  const e = err as { name?: string; code?: string; message?: string; $metadata?: { httpStatusCode?: number } };
+  // Vercel Blob's BlobNotFoundError has no distinct name, only its message.
+  return String(e?.message).includes("The requested blob does not exist") || e?.name === "NoSuchKey" || e?.name === "NotFound" || e?.code === "ENOENT" || e?.$metadata?.httpStatusCode === 404;
+}
+
+async function orMissing<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (err) {
+    throw isNotFound(err) ? new ClipMissingError(key) : err;
+  }
+}
+
 /** How the browser uploads one clip: PUT to a URL, or the Vercel Blob client with a token. */
 export type UploadTarget = { kind: "url"; url: string } | { kind: "vercel-blob"; pathname: string; token: string };
 
@@ -82,7 +106,7 @@ export async function presignGet(key: string, expiresSec = 3 * 3600): Promise<st
   if (backend === "local") return localUrl("get", key, expiresSec);
   if (backend === "blob") {
     const { head } = await import("@vercel/blob");
-    return (await head(key, { token: env.blobToken })).url;
+    return orMissing(key, async () => (await head(key, { token: env.blobToken })).url);
   }
   const { GetObjectCommand } = await import("@aws-sdk/client-s3");
   const { getSignedUrl } = await import("@aws-sdk/s3-request-presigner");
@@ -91,15 +115,18 @@ export async function presignGet(key: string, expiresSec = 3 * 3600): Promise<st
 
 export async function getObject(key: string): Promise<Buffer> {
   const backend = storageBackend();
-  if (backend === "local") return readFile(localPath(key));
+  if (backend === "local") return orMissing(key, () => readFile(localPath(key)));
   if (backend === "blob") {
     const res = await fetch(await presignGet(key), { cache: "no-store" });
+    if (res.status === 404) throw new ClipMissingError(key);
     if (!res.ok) throw new Error(`Couldn't download the clip from Vercel Blob (${res.status}).`);
     return Buffer.from(await res.arrayBuffer());
   }
   const { GetObjectCommand } = await import("@aws-sdk/client-s3");
-  const res = await (await s3()).send(new GetObjectCommand({ Bucket: env.s3Bucket, Key: key }));
-  return Buffer.from(await res.Body!.transformToByteArray());
+  return orMissing(key, async () => {
+    const res = await (await s3()).send(new GetObjectCommand({ Bucket: env.s3Bucket, Key: key }));
+    return Buffer.from(await res.Body!.transformToByteArray());
+  });
 }
 
 export async function objectSize(key: string): Promise<number | null> {
@@ -118,7 +145,16 @@ export async function objectSize(key: string): Promise<number | null> {
   }
 }
 
+/** Deletes a clip file; a file that is already gone counts as deleted. */
 export async function deleteObject(key: string): Promise<void> {
+  try {
+    await deleteObjectRaw(key);
+  } catch (err) {
+    if (!isNotFound(err)) throw err;
+  }
+}
+
+async function deleteObjectRaw(key: string): Promise<void> {
   const backend = storageBackend();
   if (backend === "local") {
     await rm(localPath(key), { force: true });

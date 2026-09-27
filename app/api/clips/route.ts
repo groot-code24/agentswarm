@@ -40,7 +40,7 @@ export const POST = withUser(async (req, user) => {
     const mb = (n: number) => Math.round(n / 1024 / 1024);
     throw new HttpError(
       413,
-      `Your queue would hold ${mb(used + incoming)} MB, over the ${mb(cap)} MB limit per member (it keeps the team inside the free storage). Use shorter or fewer clips now and add the rest when the queue runs low.`,
+      `Your queue would hold ${mb(used + incoming)} MB, over the ${mb(cap)} MB limit per member (it keeps the team inside the free storage). Free space on the Schedule page (Videos in your queue → Cancel remaining posts), or wait until more clips are posted.`,
     );
   }
   const out: { idx: number; clipId: string; upload: UploadTarget }[] = [];

@@ -3,6 +3,8 @@ import { query } from "@/lib/db";
 import { requireUser } from "@/lib/session";
 import { fmtNum, fmtWhen, STATUS_LABEL } from "@/lib/format";
 import PostActions from "@/components/PostActions";
+import CancelVideoButton from "@/components/CancelVideoButton";
+import { queueBytes, queueCapBytes } from "@/lib/schedule";
 import Icon, { PlatformIcon } from "@/components/Icon";
 
 export const dynamic = "force-dynamic";
@@ -47,6 +49,22 @@ export default async function SchedulePage({ searchParams }: { searchParams: Pro
        FROM posts WHERE user_id = $1 GROUP BY 1`,
     [user.id],
   );
+  // Uploaded videos that still hold clips or waiting posts: storage use and a way to cancel a whole batch.
+  const videos = await query<{ id: string; filename: string; title: string; waiting: number; next_at: Date | null; last_at: Date | null; bytes: number }>(
+    `WITH s AS (
+       SELECT sv.id, sv.filename, sv.title, sv.created_at,
+              (SELECT COUNT(*)::int FROM posts p JOIN clips c ON c.id = p.clip_id
+                WHERE c.source_video_id = sv.id AND p.status IN ('queued', 'needs_attention')) AS waiting,
+              (SELECT MIN(p.scheduled_at) FROM posts p JOIN clips c ON c.id = p.clip_id WHERE c.source_video_id = sv.id AND p.status = 'queued') AS next_at,
+              (SELECT MAX(p.scheduled_at) FROM posts p JOIN clips c ON c.id = p.clip_id WHERE c.source_video_id = sv.id AND p.status = 'queued') AS last_at,
+              (SELECT COALESCE(SUM(c.bytes), 0)::float8 FROM clips c WHERE c.source_video_id = sv.id AND c.status IN ('uploading', 'ready', 'scheduled')) AS bytes
+         FROM source_videos sv WHERE sv.user_id = $1)
+     SELECT * FROM s WHERE waiting > 0 OR bytes > 0 ORDER BY next_at NULLS LAST, created_at DESC`,
+    [user.id],
+  );
+  const used = await queueBytes(user.id);
+  const cap = queueCapBytes();
+  const mb = (n: number) => `${Math.round(n / 1024 / 1024)} MB`;
   const count = (k: keyof typeof FILTERS) =>
     k === "all" ? counts.reduce((n, c) => n + c.n, 0) : counts.find((c) => c.k === (k === "attention" ? "needs_attention" : k))?.n ?? 0;
 
@@ -61,6 +79,32 @@ export default async function SchedulePage({ searchParams }: { searchParams: Pro
           <Link className="btn primary" href="/upload"><Icon name="plus" size={18} /> Add clips</Link>
         </div>
       </header>
+      {videos.length > 0 && (
+        <section className="card" style={{ marginBottom: 20 }}>
+          <div className="card-title">
+            <h3><Icon name="film" size={18} /> Videos in your queue</h3>
+            <span className="small muted">Storage: <b style={{ color: used > cap ? "var(--danger)" : "var(--text)" }}>{mb(used)}</b> of {mb(cap)}</span>
+          </div>
+          <div className={`meter${used > cap * 0.85 ? " low" : ""}`} style={{ marginBottom: 12 }}>
+            <div style={{ width: `${Math.min(100, (used / cap) * 100)}%` }} />
+          </div>
+          <div className="list">
+            {videos.map((v) => (
+              <div key={v.id} className="list-item" style={{ flexWrap: "wrap" }}>
+                <span className="li-icon"><Icon name="film" size={18} /></span>
+                <div className="li-main">
+                  <span className="li-title">{v.title || v.filename}</span>
+                  <span className="li-sub">
+                    {v.waiting} waiting post{v.waiting === 1 ? "" : "s"} · {mb(v.bytes)}
+                    {v.next_at && <> · {fmtWhen(v.next_at, user.timezone)} → {fmtWhen(v.last_at, user.timezone)}</>}
+                  </span>
+                </div>
+                <CancelVideoButton id={v.id} name={v.title || v.filename} waiting={v.waiting} />
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
       <nav className="segmented" aria-label="Filter posts" style={{ marginBottom: 16 }}>
         {(Object.keys(FILTERS) as (keyof typeof FILTERS)[]).map((k) => (
           <Link key={k} href={`/schedule?filter=${k}`} className={k === filter ? "active" : ""} aria-current={k === filter ? "page" : undefined}>

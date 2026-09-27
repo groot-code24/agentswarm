@@ -2,7 +2,7 @@ import { DateTime } from "luxon";
 import { env } from "./env";
 import { newId, query, queryOne } from "./db";
 import { sendEmailOnce } from "./email";
-import { deleteObject, getObject, presignGet } from "./storage";
+import { ClipMissingError, deleteObject, getObject, presignGet } from "./storage";
 import { getAccount, isSimulated, markNeedsReconnect, refreshAccountData } from "./accounts";
 import { generateSuggestions } from "./suggestions";
 import { dryRunId, dryRunMetrics } from "./platforms/dryrun";
@@ -219,7 +219,13 @@ async function markPublished(post: PostRow, externalId: string, permalink: strin
 }
 
 async function handleFailure(post: PostRow, err: unknown, ctx: Ctx) {
-  const e = err instanceof PlatformError ? err : new PlatformError((err as Error)?.message || String(err), "retry");
+  // A missing clip file won't reappear by retrying.
+  const e =
+    err instanceof PlatformError
+      ? err
+      : err instanceof ClipMissingError
+        ? new PlatformError(err.message, "fatal")
+        : new PlatformError((err as Error)?.message || String(err), "retry");
   ctx.log.push(`post ${post.id}: ${e.kind}: ${e.message}`);
   if (e.kind === "reconnect") {
     await markNeedsReconnect(post.account_id);
