@@ -1,0 +1,8 @@
+node_modules/
+public/vendor/
+clips/
+uploads/
+venv/
+ffmpeg_bin/
+__pycache__/
+.vercel/

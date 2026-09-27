@@ -1,0 +1,13 @@
+# Vercel only serves the static site in public/. The Flask app (local mode)
+# and generated media must not be uploaded — otherwise Vercel would try to
+# deploy app.py as a Python function.
+app.py
+requirements.txt
+run.bat
+templates/
+clips/
+uploads/
+venv/
+ffmpeg_bin/
+public/vendor/
+node_modules/

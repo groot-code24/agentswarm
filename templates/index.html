@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Video Clipper</title>
+<style>
+  body { font-family: system-ui, -apple-system, sans-serif; max-width: 1000px; margin: 40px auto; padding: 0 16px; background:#0f1115; color:#e6e6e6; }
+  form, #progress-wrap, #error { max-width: 640px; }
+  h1 { font-size: 1.5rem; margin-bottom: 4px; }
+  p.sub { color: #999; margin-top:0; }
+  .drop-zone { border: 2px dashed #444; border-radius: 12px; padding: 40px 20px; text-align: center; cursor: pointer; transition: 0.2s; }
+  .drop-zone.dragover { border-color: #4da3ff; background: #1a1d24; }
+  select, button { font-size: 1rem; padding: 8px 14px; border-radius: 8px; border: 1px solid #444; background:#1a1d24; color:#e6e6e6; }
+  button { cursor: pointer; background:#4da3ff; color:#0f1115; font-weight:600; border:none; }
+  button:disabled { opacity:0.5; cursor:not-allowed; }
+  #progress-wrap { margin-top: 20px; display:none; }
+  #progress-bar { width:100%; height: 10px; background:#2a2d34; border-radius:6px; overflow:hidden; }
+  #progress-fill { height:100%; width:0%; background:#4da3ff; transition:width 0.2s; }
+  #clips { margin-top: 24px; }
+  .clips-head { display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:14px; }
+  .clips-head h3 { margin:0; }
+  #grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(240px, 1fr)); gap:16px; }
+  .card { background:#171a21; border:1px solid #2a2d34; border-radius:12px; overflow:hidden; }
+  .card.playing { border-color:#4da3ff; }
+  .card video { width:100%; aspect-ratio:16/9; background:#000; display:block; object-fit:contain; }
+  .card .meta { display:flex; justify-content:space-between; align-items:center; padding:10px 12px; font-size:0.9rem; }
+  .card .meta button { font-size:0.85rem; padding:6px 10px; }
+  #status-text { margin-top:10px; font-size:0.9rem; color:#aaa; }
+  #error { color:#ff6b6b; margin-top:10px; white-space: pre-wrap; }
+  .controls { margin-top:15px; display:flex; gap:10px; align-items:center; flex-wrap: wrap; }
+</style>
+</head>
+<body>
+  <h1>🎬 Video Clipper</h1>
+  <p class="sub">Upload a long video. Get it back as short downloadable clips.</p>
+
+  <form id="upload-form">
+    <div class="drop-zone" id="drop-zone">
+      <p id="drop-text">Drag &amp; drop a video here, or click to choose a file</p>
+      <input type="file" id="file-input" name="video" accept="video/*" style="display:none">
+    </div>
+    <div class="controls">
+      <label for="duration">Clip length:</label>
+      <select id="duration" name="duration">
+        <option value="30">30 seconds</option>
+        <option value="45" selected>45 seconds</option>
+        <option value="60">60 seconds</option>
+      </select>
+      <button type="submit" id="submit-btn">Upload &amp; Split</button>
+    </div>
+  </form>
+
+  <div id="progress-wrap">
+    <div id="progress-bar"><div id="progress-fill"></div></div>
+    <div id="status-text">Uploading...</div>
+  </div>
+  <div id="error"></div>
+  <div id="clips"></div>
+
+<script>
+const dropZone = document.getElementById('drop-zone');
+const fileInput = document.getElementById('file-input');
+const dropText = document.getElementById('drop-text');
+const form = document.getElementById('upload-form');
+const submitBtn = document.getElementById('submit-btn');
+const progressWrap = document.getElementById('progress-wrap');
+const progressFill = document.getElementById('progress-fill');
+const statusText = document.getElementById('status-text');
+const errorDiv = document.getElementById('error');
+const clipsDiv = document.getElementById('clips');
+
+let selectedFile = null;
+
+dropZone.addEventListener('click', () => fileInput.click());
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropZone.classList.remove('dragover');
+  if (e.dataTransfer.files.length) {
+    selectedFile = e.dataTransfer.files[0];
+    dropText.textContent = selectedFile.name;
+  }
+});
+fileInput.addEventListener('change', () => {
+  if (fileInput.files.length) {
+    selectedFile = fileInput.files[0];
+    dropText.textContent = selectedFile.name;
+  }
+});
+
+form.addEventListener('submit', e => {
+  e.preventDefault();
+  if (!selectedFile) { errorDiv.textContent = 'Please choose a video file first.'; return; }
+  errorDiv.textContent = '';
+  clipsDiv.innerHTML = '';
+  submitBtn.disabled = true;
+  progressWrap.style.display = 'block';
+  statusText.textContent = 'Uploading...';
+  progressFill.style.width = '0%';
+
+  const duration = document.getElementById('duration').value;
+  const formData = new FormData();
+  formData.append('video', selectedFile);
+  formData.append('duration', duration);
+
+  const xhr = new XMLHttpRequest();
+  xhr.open('POST', '/upload');
+  xhr.upload.onprogress = evt => {
+    if (evt.lengthComputable) {
+      const pct = (evt.loaded / evt.total) * 100;
+      progressFill.style.width = pct + '%';
+      statusText.textContent = `Uploading... ${pct.toFixed(0)}%`;
+    }
+  };
+  xhr.onload = () => {
+    let data;
+    try { data = JSON.parse(xhr.responseText); } catch (e) { data = {}; }
+    if (xhr.status !== 200) {
+      errorDiv.textContent = data.error || 'Upload failed.';
+      submitBtn.disabled = false;
+      progressWrap.style.display = 'none';
+      return;
+    }
+    statusText.textContent = 'Upload complete. Splitting into clips...';
+    progressFill.style.width = '100%';
+    pollStatus(data.job_id);
+  };
+  xhr.onerror = () => {
+    errorDiv.textContent = 'Upload failed. Is the server running?';
+    submitBtn.disabled = false;
+    progressWrap.style.display = 'none';
+  };
+  xhr.send(formData);
+});
+
+function pollStatus(jobId) {
+  const interval = setInterval(() => {
+    fetch(`/status/${jobId}`).then(r => r.json()).then(job => {
+      if (job.status === 'done') {
+        clearInterval(interval);
+        statusText.textContent = `Done! ${job.clips.length} clips ready.`;
+        submitBtn.disabled = false;
+        renderClips(jobId, job.clips);
+      } else if (job.status === 'error') {
+        clearInterval(interval);
+        errorDiv.textContent = 'Error while processing:\n' + (job.error || 'unknown error');
+        submitBtn.disabled = false;
+        progressWrap.style.display = 'none';
+      } else {
+        statusText.textContent = 'Splitting video into clips... this can take a while for long videos.';
+      }
+    }).catch(() => {
+      clearInterval(interval);
+      errorDiv.textContent = 'Lost connection to the server.';
+      submitBtn.disabled = false;
+    });
+  }, 2000);
+}
+
+// Only attach a video source while its card is on screen, so long videos with
+// hundreds of clips don't exhaust the browser's media player limit.
+const observer = new IntersectionObserver(entries => {
+  entries.forEach(entry => {
+    const video = entry.target;
+    if (entry.isIntersecting) {
+      if (!video.getAttribute('src')) video.src = video.dataset.src;
+    } else if (video.paused && video.getAttribute('src')) {
+      video.removeAttribute('src');
+      video.load();
+    }
+  });
+}, { rootMargin: '400px 0px' });
+
+function renderClips(jobId, clips) {
+  clipsDiv.innerHTML = `<div class="clips-head"><h3>Clips (${clips.length})</h3>` +
+    `<button type="button" onclick="window.location.href='/download-all/${jobId}'">⬇ Download all as ZIP</button></div>` +
+    `<div id="grid"></div>`;
+  const grid = document.getElementById('grid');
+  const videos = [];
+  clips.forEach((name, i) => {
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.innerHTML = `<video controls preload="metadata" playsinline data-src="/clip/${jobId}/${name}#t=0.1"></video>` +
+      `<div class="meta"><span>Clip ${i + 1}</span><a href="/download/${jobId}/${name}"><button type="button">⬇ Download</button></a></div>`;
+    const video = card.querySelector('video');
+    video.addEventListener('play', () => {
+      videos.forEach(v => { if (v !== video) v.pause(); });
+      card.classList.add('playing');
+    });
+    video.addEventListener('pause', () => card.classList.remove('playing'));
+    videos.push(video);
+    grid.appendChild(card);
+    observer.observe(video);
+  });
+}
+</script>
+</body>
+</html>

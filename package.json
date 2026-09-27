@@ -1,0 +1,15 @@
+{
+  "name": "video-clipper",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Split long videos into short clips in the browser (ffmpeg.wasm). Static site, deployable to Vercel.",
+  "scripts": {
+    "build": "node scripts/copy-vendor.mjs",
+    "dev": "npm run build && npx --yes serve public -l 3000"
+  },
+  "devDependencies": {
+    "@ffmpeg/core": "^0.12.10",
+    "@ffmpeg/ffmpeg": "^0.12.15",
+    "client-zip": "^2.5.1"
+  }
+}
