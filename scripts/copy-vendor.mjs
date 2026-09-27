@@ -1,6 +1,6 @@
-// Copies the browser builds of mediabunny, ffmpeg.wasm and client-zip into public/vendor
-// so the site serves them from its own origin (Vercel runs this as the build step).
-import { cpSync, mkdirSync, rmSync } from "node:fs";
+// Copies ffmpeg.wasm into public/vendor. It is the fallback splitter for formats
+// mediabunny can't read (e.g. AVI) and must be served from our own origin.
+import { cpSync, existsSync, mkdirSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -8,19 +8,15 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const nm = join(root, "node_modules");
 const vendor = join(root, "public", "vendor");
 
+if (!existsSync(join(nm, "@ffmpeg", "core"))) {
+  console.warn("ffmpeg.wasm not installed; skipping vendor copy (AVI fallback disabled).");
+  process.exit(0);
+}
 rmSync(vendor, { recursive: true, force: true });
 mkdirSync(vendor, { recursive: true });
-
-// mediabunny: the main (fast) engine — reads only the bytes each clip needs.
-cpSync(join(nm, "mediabunny", "dist", "bundles", "mediabunny.min.mjs"), join(vendor, "mediabunny.js"));
-// @ffmpeg/ffmpeg: fallback engine for formats mediabunny can't read (e.g. AVI). ES module wrapper + its worker (must be same-origin).
 cpSync(join(nm, "@ffmpeg", "ffmpeg", "dist", "esm"), join(vendor, "ffmpeg"), {
   recursive: true,
   filter: (src) => !src.endsWith(".d.ts") && !src.endsWith(".d.mts"),
 });
-// @ffmpeg/core: the single-threaded ffmpeg build (no COOP/COEP headers needed).
 cpSync(join(nm, "@ffmpeg", "core", "dist", "esm"), join(vendor, "ffmpeg-core"), { recursive: true });
-// client-zip: streaming ZIP for "Download all" in browsers without a folder picker.
-cpSync(join(nm, "client-zip", "index.js"), join(vendor, "client-zip.js"));
-
 console.log("Vendor files copied to public/vendor");

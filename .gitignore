@@ -1,5 +1,11 @@
 node_modules/
+.next/
+next-env.d.ts
+*.tsbuildinfo
 public/vendor/
+.data/
+.env
+.env.local
 clips/
 uploads/
 venv/

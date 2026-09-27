@@ -1,16 +1,41 @@
 {
-  "name": "video-clipper",
+  "name": "clip-autopilot",
   "private": true,
-  "version": "1.0.0",
-  "description": "Split long videos into short clips in the browser (mediabunny + ffmpeg.wasm fallback). Static site, deployable to Vercel.",
+  "version": "2.0.0",
+  "description": "Private team tool: split long videos into clips, auto-post them to YouTube Shorts and Instagram Reels at the best times, and suggest improvements.",
   "scripts": {
-    "build": "node scripts/copy-vendor.mjs",
-    "dev": "npm run build && npx --yes serve public -l 3000"
+    "predev": "node scripts/copy-vendor.mjs",
+    "dev": "next dev",
+    "prebuild": "node scripts/copy-vendor.mjs",
+    "build": "next build",
+    "start": "next start",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "tick": "node --env-file-if-exists=.env.local scripts/tick.mjs",
+    "check": "node --env-file-if-exists=.env.local scripts/check.mjs"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.1141.0",
+    "@aws-sdk/s3-request-presigner": "^3.1141.0",
+    "@electric-sql/pglite": "^0.5.8",
+    "@neondatabase/serverless": "^1.1.0",
+    "client-zip": "^2.5.1",
+    "jose": "^6.2.12",
+    "luxon": "^3.7.2",
+    "mediabunny": "^1.60.0",
+    "next": "^16.3.6",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@ffmpeg/core": "^0.12.10",
     "@ffmpeg/ffmpeg": "^0.12.15",
-    "client-zip": "^2.5.1",
-    "mediabunny": "^1.60.0"
+    "@types/luxon": "^3.7.5",
+    "@types/node": "^26.6.3",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "typescript": "^5.9.3",
+    "vitest": "^5.0.2"
   }
 }
