@@ -110,7 +110,7 @@ When the `S3_*` settings are filled in, R2 is used instead of Vercel Blob, and e
    - `.../auth/userinfo.profile`
    - `https://www.googleapis.com/auth/youtube.upload`
    - `https://www.googleapis.com/auth/youtube.readonly`
-5. **Audience → Publishing status: press "Publish app" (In production).**
+5. **Audience → Publishing status: press "Publish app" (In production).** Without this, only listed test users can connect YouTube (others see "Access blocked"). The Admin panel warns you when it detects Testing mode.
    - Don't leave it in *Testing*: in Testing mode, logins expire every 7 days.
    - You don't need to submit for verification. Members will see a one-time "Google hasn't verified this app" screen and click *Advanced → Go to …*. Up to 100 users are allowed this way.
 6. **Clients → Create client → Web application**. Add these **Authorized redirect URIs**. Sign-in and Connect YouTube share one address per site:
@@ -130,7 +130,7 @@ When the `S3_*` settings are filled in, R2 is used instead of Vercel Blob, and e
 2. In the app: **Instagram → API setup with Instagram login**.
 3. **Set up Instagram business login** → add the redirect URL `APP_URL/api/connect/instagram/callback`.
 4. Copy the **Instagram app ID** → `INSTAGRAM_APP_ID` and the **Instagram app secret** → `INSTAGRAM_APP_SECRET`. These are on that same page and are *not* the Facebook App ID.
-5. **App roles → Roles → Instagram Testers → Add**: enter each member's Instagram username.
+5. **App roles → Roles → Instagram Testers → Add**: enter each member's Instagram username. Members type their username in **Settings**, and the **Admin** panel lists whom to add.
 6. Each member does this once, in the Instagram app:
    - **Switch to a Professional account** (Creator or Business). It's free and takes 1 minute: Settings → Account type and tools.
    - **Accept the tester invite**: Settings → Apps and websites → Tester invites.
@@ -143,23 +143,21 @@ When the `S3_*` settings are filled in, R2 is used instead of Vercel Blob, and e
    - Without a verified domain, Resend's test sender only delivers to your own Resend login email, so teammates wouldn't get their "clips running out" emails.
 3. `ADMIN_EMAIL` (you) receives the daily summary and the "someone asked for access" emails.
 
-## 5b. Title & caption writer (optional, recommended)
+## 5b. Gemini AI: titles, captions and suggestions (free, recommended)
 
-When you choose **"Write them for me"** on the Upload page, every clip gets its own hook title, description,
-keyword tags and 3–5 hashtags. Which writer is used depends on the key you add (in Vercel **and** `.env.local`):
+1. Open https://aistudio.google.com/apikey → **Create API key** (free tier, no card).
+2. Add it as `GEMINI_API_KEY` in Vercel (and `.env.local`), then redeploy.
 
-| Key | Writer | Cost | Quality |
-|-----|--------|------|---------|
-| `ANTHROPIC_API_KEY` | Claude looks at 2 frames of every clip | Pay-as-you-go: usually cents per video (set `CLAUDE_MODEL=claude-haiku-4-5-20251001` for the cheapest) | Best |
-| `GEMINI_API_KEY` | Gemini looks at 2 frames of every clip | **Free tier** at https://aistudio.google.com/apikey (no card; daily limits) | Very good |
-| neither | Built-in writer: varied hook titles from your topic | Free | Good |
-
-- Claude: https://console.anthropic.com → **API keys** → create key → `ANTHROPIC_API_KEY`. Default model: `claude-sonnet-5` (change with `CLAUDE_MODEL`).
-- Gemini: https://aistudio.google.com/apikey → **Create API key** → `GEMINI_API_KEY`. Default model: `gemini-flash-latest` (change with `GEMINI_MODEL`).
-- Only two small frames per clip and your topic/title are sent to the AI provider; the video itself isn't.
-- If the AI is unavailable (wrong key, quota), the built-in writer takes over and the Upload page tells you why.
-- Every written title/caption can be changed on **Schedule → Edit text** before it's posted.
-- **Settings → Run live checks** shows which writer is active and a sample title.
+What it does:
+- **Upload → "Write them for me"**: Gemini looks at 2 frames of every clip and writes its own hook title, description,
+  keyword tags and 3–5 hashtags. Everything can be changed on **Schedule → Edit text** before it's posted.
+- **Suggestions**: once a week per account (after 8+ measured posts), Gemini reviews your recent posts (hooks, titles,
+  watch time, shares, saves) and proposes up to 3 specific improvements with the numbers behind them. Approving a
+  "title lesson" teaches the writer for all future clips; **Undo** removes it.
+- Only two small frames per clip, your topic/title, and post statistics are sent to Google; never the video itself.
+- If Gemini is unavailable (wrong key, daily limit), the built-in writer takes over and the page says why.
+- Optional: `GEMINI_MODEL` (default `gemini-flash-latest`). `ANTHROPIC_API_KEY` (Claude, paid) is used only when no Gemini key is set.
+- **Settings → Run live checks** shows which writer is active and a sample title. **Admin** shows it too.
 
 ## 6. Deploy on Vercel
 

@@ -557,7 +557,7 @@ export default function UploadStudio(props: {
                 {props.seoEngine === "rules" ? (
                   <>
                     Each clip gets its own hook title, description, keyword tags and 3–5 hashtags, built from your topic. For titles written
-                    from what&apos;s actually in each clip, add a Claude or free Gemini key (SETUP.md, step 5b).
+                    from what&apos;s actually in each clip, add a free Gemini key (SETUP.md, step 5b).
                   </>
                 ) : (
                   <>

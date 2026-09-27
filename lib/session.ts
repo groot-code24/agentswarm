@@ -21,6 +21,10 @@ export type User = {
 export type UserPrefs = {
   recommendedClipLength?: number;
   recommendedFormat?: "original" | "vertical";
+  /** Lessons for the title writer, from approved AI suggestions. */
+  seoGuidance?: string[];
+  /** The member's Instagram username, so the admin can add it as an Instagram Tester. */
+  instagramUsername?: string;
 };
 
 function secret() {

@@ -38,8 +38,8 @@ export const env = {
   // Vercel Blob (free on the Hobby plan, no card): added automatically when a Blob store is connected to the project.
   blobToken: process.env.BLOB_READ_WRITE_TOKEN || "",
 
-  // Title & caption writer (optional). Claude if ANTHROPIC_API_KEY is set, else Gemini (free tier)
-  // if GEMINI_API_KEY is set, else the built-in rule-based writer.
+  // AI for titles/captions and suggestions (optional). Gemini (free tier) if GEMINI_API_KEY is set,
+  // else Claude if ANTHROPIC_API_KEY is set, else the built-in rule-based writer (no AI suggestions).
   anthropicApiKey: process.env.ANTHROPIC_API_KEY || "",
   claudeModel: process.env.CLAUDE_MODEL || "claude-sonnet-5",
   geminiApiKey: process.env.GEMINI_API_KEY || "",
@@ -59,7 +59,7 @@ export const features = {
   s3: Boolean(env.s3Endpoint && env.s3Bucket && env.s3AccessKeyId && env.s3SecretAccessKey),
   blob: Boolean(env.blobToken),
   email: Boolean(env.resendApiKey),
-  seoEngine: (env.anthropicApiKey ? "claude" : env.geminiApiKey ? "gemini" : "rules") as "claude" | "gemini" | "rules",
+  seoEngine: (env.geminiApiKey ? "gemini" : env.anthropicApiKey ? "claude" : "rules") as "claude" | "gemini" | "rules",
   // Email-only sign-in without Google, for local development only.
   devLogin: !isProd && !(env.googleClientId && env.googleClientSecret),
 };

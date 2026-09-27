@@ -36,7 +36,7 @@ export const POST = withUser(async (req, user) => {
   );
   const frames = new Map(body.clips.map((c) => [c.clipId, c.frames]));
   const { results, engine, warning } = await writeSeo(
-    source,
+    { ...source, guidance: user.prefs?.seoGuidance ?? [] },
     rows
       .sort((a, b) => a.idx - b.idx)
       .map((c) => ({

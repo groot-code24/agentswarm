@@ -47,20 +47,35 @@ export async function youtubeExchangeCode(code: string) {
     }),
   }, "token exchange");
   if (!res.ok) throw await httpError("youtube", res, "token exchange");
-  const tok = (await res.json()) as { access_token: string; refresh_token?: string; expires_in: number; scope: string };
-  if (!tok.refresh_token) throw new PlatformError("Google did not return a refresh token. Remove the app's access in your Google account settings and connect again.", "fatal");
+  const tok = (await res.json()) as { access_token: string; refresh_token?: string; expires_in: number; scope: string; refresh_token_expires_in?: number };
+  if (!tok.refresh_token) {
+    throw new PlatformError(
+      "Google didn't return a long-term login. Open https://myaccount.google.com/connections, remove Clip Autopilot, then connect again.",
+      "fatal",
+    );
+  }
   if (!SCOPES.every((s) => tok.scope.includes(s))) {
-    throw new PlatformError("Please tick all the YouTube permission boxes when connecting.", "fatal");
+    throw new PlatformError(
+      'Google gave only some permissions. Connect again and on the permissions screen tick BOTH YouTube boxes (or "Select all"), then Continue.',
+      "fatal",
+    );
   }
   const ch = await ytGet(tok.access_token, "/channels?part=snippet&mine=true", "channel lookup");
   const channel = (ch.items as { id: string; snippet: { title: string } }[] | undefined)?.[0];
-  if (!channel) throw new PlatformError("This Google account has no YouTube channel.", "fatal");
+  if (!channel) {
+    throw new PlatformError(
+      "This Google account has no YouTube channel. Create one at https://www.youtube.com/create_channel, or connect again and pick the Google account (or Brand Account) that owns your channel.",
+      "fatal",
+    );
+  }
   return {
     accessToken: tok.access_token,
     refreshToken: tok.refresh_token,
     expiresAt: new Date(Date.now() + tok.expires_in * 1000),
     externalId: channel.id,
     name: channel.snippet.title,
+    // Google only limits refresh tokens (to 7 days) while the OAuth app is in "Testing" mode.
+    testingMode: tok.refresh_token_expires_in != null && tok.refresh_token_expires_in < 30 * 86400,
   };
 }
 

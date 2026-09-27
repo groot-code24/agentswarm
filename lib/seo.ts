@@ -2,8 +2,8 @@ import { env, features } from "./env";
 import { baseTitle, normalizeHashtags } from "./captions";
 
 // Writes a title, description, tags and hashtags for every clip, aimed at views:
-//  - Claude (ANTHROPIC_API_KEY) or Gemini (GEMINI_API_KEY, free tier) look at two frames of each
-//    clip plus the member's topic/title, and write platform-specific text.
+//  - Gemini (GEMINI_API_KEY, free tier; preferred) or Claude (ANTHROPIC_API_KEY) look at two frames of
+//    each clip plus the member's topic/title, and write platform-specific text.
 //  - Without a key (or if the AI call fails) a built-in rule-based writer is used.
 // All output is cleaned to each platform's limits before it's saved.
 
@@ -25,6 +25,8 @@ export type SeoSource = {
   topic: string;
   language: string;
   format: "original" | "vertical";
+  /** Lessons from this member's own results, approved on the Suggestions page. */
+  guidance?: string[];
 };
 
 export type SeoClipInput = {
@@ -76,6 +78,9 @@ function contextText(source: SeoSource, clips: SeoClipInput[], usedTitles: strin
     `Language: ${source.language || "same language as the creator's text; English if none"}`,
     `The video was split into ${clips[0]?.total ?? clips.length} clips posted as a series.`,
     usedTitles.length ? `Titles already used in this series (don't repeat): ${usedTitles.slice(-40).map((t) => `"${t}"`).join("; ")}` : "",
+    source.guidance?.length
+      ? `Lessons from this creator's own results (the creator approved these; follow them):\n${source.guidance.map((g) => `- ${g}`).join("\n")}`
+      : "",
     `Write metadata for these ${clips.length} clips (use each clip's number in "clip"):`,
   ];
   return lines.filter(Boolean).join("\n");
@@ -324,4 +329,49 @@ export async function pingSeoEngine(): Promise<string> {
   const clip: SeoClipInput = { clipId: "x", idx: 0, total: 1, startSec: 0, duration: 30, frames: [] };
   const raw = features.seoEngine === "claude" ? await callClaude(source, [clip], []) : await callGemini(source, [clip], []);
   return cleanSeo(raw[0], features.seoEngine, source).youtube.title;
+}
+
+// ---------------------------------------------------------------------------
+// Generic structured AI call (used by AI suggestions)
+// ---------------------------------------------------------------------------
+
+/**
+ * Sends text to the configured AI (Gemini first, else Claude) and returns JSON matching `schema`
+ * (a JSON-schema object using lower-case types). Throws when no AI key is configured.
+ */
+export async function aiJson<T>(system: string, prompt: string, schema: Record<string, unknown>, maxTokens = 4000): Promise<T> {
+  if (features.seoEngine === "gemini") {
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(env.geminiModel)}:generateContent`, {
+      method: "POST",
+      headers: { "x-goog-api-key": env.geminiApiKey, "content-type": "application/json" },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: system }] },
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
+        generationConfig: { responseMimeType: "application/json", responseSchema: geminiSchema(schema), temperature: 0.4, maxOutputTokens: maxTokens },
+      }),
+    });
+    const json = (await res.json().catch(() => ({}))) as { candidates?: { content?: { parts?: { text?: string }[] } }[]; error?: { message?: string } };
+    if (!res.ok) throw new Error(`Gemini: ${json.error?.message || res.status}`);
+    return JSON.parse(json.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("") || "null") as T;
+  }
+  if (features.seoEngine === "claude") {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "x-api-key": env.anthropicApiKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+      body: JSON.stringify({
+        model: env.claudeModel,
+        max_tokens: maxTokens,
+        system,
+        tools: [{ name: "answer", description: "Return the answer.", input_schema: schema }],
+        tool_choice: { type: "tool", name: "answer" },
+        messages: [{ role: "user", content: prompt }],
+      }),
+    });
+    const json = (await res.json().catch(() => ({}))) as { content?: { type: string; input?: T }[]; error?: { message?: string } };
+    if (!res.ok) throw new Error(`Claude: ${json.error?.message || res.status}`);
+    const out = json.content?.find((b) => b.type === "tool_use")?.input;
+    if (!out) throw new Error("Claude returned no answer.");
+    return out;
+  }
+  throw new Error("No AI key configured (GEMINI_API_KEY).");
 }

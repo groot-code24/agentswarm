@@ -29,5 +29,8 @@ export async function GET(_req: Request, ctx: { params: Promise<{ platform: stri
   if (platform === "youtube" && !features.googleLogin) return back("Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET first.");
   if (platform === "instagram" && !features.instagram) return back("Set INSTAGRAM_APP_ID and INSTAGRAM_APP_SECRET first.");
   const state = await createState({ purpose: platform, uid: user.id });
+  // If this is never followed by "connected" or "connect_failed", the person got stuck on Google's or
+  // Instagram's own page (e.g. "Access blocked" in Testing mode, or not an Instagram Tester).
+  await audit(user.id, "account.connect_started", { platform });
   return NextResponse.redirect(platform === "youtube" ? youtubeAuthUrl(state, user.email) : instagramAuthUrl(state));
 }

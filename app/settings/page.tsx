@@ -5,6 +5,8 @@ import SettingsForm from "@/components/SettingsForm";
 import DisconnectButton from "@/components/DisconnectButton";
 import LiveChecks from "@/components/LiveChecks";
 import Icon, { PlatformIcon } from "@/components/Icon";
+import InstagramUsername from "@/components/InstagramUsername";
+import { features } from "@/lib/env";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Settings" };
@@ -73,15 +75,52 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
               <Icon name="plus" size={18} />
             </a>
           </div>
+          {accounts.some((a) => a.meta?.googleTestingMode) && (
+            <div className="notice warn">
+              <Icon name="alert" size={18} />
+              <div>
+                Google says this app is in <b>Testing</b> mode, so your YouTube connection stops working after 7 days. Ask the admin to
+                publish it (Google Cloud → Google Auth Platform → Audience → <b>Publish app</b>), then reconnect.
+              </div>
+            </div>
+          )}
           <div className="two-col small" style={{ gap: 12 }}>
             <div className="notice" style={{ display: "block" }}>
-              <b style={{ color: "var(--text)" }}>Before connecting Instagram:</b> your account must be a <b>Professional</b> account
-              (Instagram → Settings → Account type and tools → Switch to professional account), and the admin must add your username as an
-              <b> Instagram Tester</b> in the Meta app. Accept the invite in Instagram → Settings → Apps and websites → Tester invites.
+              <div className="row" style={{ gap: 8, marginBottom: 6 }}>
+                <PlatformIcon platform="youtube" size={18} /> <b style={{ color: "var(--text)" }}>Connecting YouTube</b>
+              </div>
+              <ol style={{ margin: 0, paddingLeft: 18 }}>
+                <li>Press <b>Connect YouTube</b> and pick the Google account that owns your channel (for a Brand Account channel, pick the channel&apos;s name).</li>
+                <li>If Google says &quot;Google hasn&apos;t verified this app&quot;: click <i>Advanced → Go to Clip Autopilot</i>. That&apos;s expected for our private tool.</li>
+                <li>Tick <b>both</b> YouTube boxes (or &quot;Select all&quot;) and press <b>Continue</b>.</li>
+              </ol>
+              <div style={{ marginTop: 6 }}>
+                If Google shows <i>&quot;Access blocked … has not completed the Google verification process&quot;</i>, the admin still has to publish the
+                app in Google Cloud. No YouTube channel yet? <a href="https://www.youtube.com/create_channel" target="_blank" rel="noreferrer">Create one</a> first.
+              </div>
             </div>
             <div className="notice" style={{ display: "block" }}>
-              <b style={{ color: "var(--text)" }}>Connecting YouTube:</b> Google shows &quot;Google hasn&apos;t verified this app&quot; the first time.
-              That&apos;s expected for our private tool: click <i>Advanced → Go to Clip Autopilot</i> and tick all boxes.
+              <div className="row" style={{ gap: 8, marginBottom: 6 }}>
+                <PlatformIcon platform="instagram" size={18} /> <b style={{ color: "var(--text)" }}>Connecting Instagram</b>
+              </div>
+              {!features.instagram && (
+                <div style={{ marginBottom: 6, color: "var(--warn)" }}>Instagram isn&apos;t set up on this site yet (the admin needs to finish SETUP.md step 4).</div>
+              )}
+              <ol style={{ margin: 0, paddingLeft: 18 }}>
+                <li>
+                  Your account must be <b>Professional</b> (Creator or Business): Instagram → Settings → Account type and tools → Switch to professional
+                  account. It&apos;s free.
+                </li>
+                <li>Enter your Instagram username below so the admin can add you as an <b>Instagram Tester</b>.</li>
+                <li>
+                  Accept the invite: <a href="https://www.instagram.com/accounts/manage_access/" target="_blank" rel="noreferrer">instagram.com → Apps and
+                  websites → Tester invites</a> → Accept.
+                </li>
+                <li>Press <b>Connect Instagram</b> and <b>Allow</b>.</li>
+              </ol>
+              <div style={{ marginTop: 8 }}>
+                <InstagramUsername current={user.prefs?.instagramUsername ?? ""} />
+              </div>
             </div>
           </div>
         </div>

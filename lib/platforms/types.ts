@@ -21,6 +21,8 @@ export type AccountMeta = {
   onlineFollowersUtc?: Record<string, number>;
   accountType?: string;
   dryRun?: boolean;
+  /** Google issued a 7-day refresh token: the OAuth app is still in "Testing" mode. */
+  googleTestingMode?: boolean;
 };
 
 export type Metrics = {

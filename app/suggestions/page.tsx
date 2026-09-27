@@ -25,7 +25,10 @@ export default async function SuggestionsPage() {
       <header className="page-head">
         <div>
           <h1>Suggestions</h1>
-          <p>Ideas to get more views, based on your own numbers. Nothing changes until you press Approve, and applied changes can be undone.</p>
+          <p>
+            Ideas to get more views, based on your own numbers, plus a weekly AI review of your recent posts. Nothing changes until you press
+            Approve, and applied changes can be undone. Approving a title lesson teaches the title writer for all future clips.
+          </p>
         </div>
         <div className="page-actions"><RefreshSuggestions /></div>
       </header>
@@ -50,7 +53,10 @@ export default async function SuggestionsPage() {
                   )}
                 </div>
               </div>
-              <span className="badge proposed">{s.can_apply ? "Needs approval" : "Advice"}</span>
+              <span className="row" style={{ gap: 6 }}>
+                {s.type.startsWith("ai_") && <span className="badge">✨ AI review</span>}
+                <span className="badge proposed">{s.can_apply ? "Needs approval" : "Advice"}</span>
+              </span>
             </div>
             <div className="small" style={{ color: "var(--text-2)" }}><b style={{ color: "var(--text)" }}>What we saw:</b> {s.evidence}</div>
             <div className="small" style={{ color: "var(--text-2)" }}><b style={{ color: "var(--text)" }}>{s.can_apply ? "What will change:" : "What to try:"}</b> {s.change_summary}</div>

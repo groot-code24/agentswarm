@@ -4,10 +4,14 @@ import { getAccount, listAccounts, ownPostViews } from "./accounts";
 import { median, pickDailyHours, scoresFromPosts, formatHours } from "./planner";
 import { retimeQueuedPosts } from "./schedule";
 import type { UserPrefs } from "./session";
+import { features } from "./env";
+import { aiJson } from "./seo";
+import type { AccountRow } from "./platforms/types";
 
-// Suggestions are plain rules over our own numbers (views 24 h after posting, compared with the
-// account's own median). Nothing changes until the member presses Approve, and every applied
-// change stores what it replaced so it can be undone.
+// Suggestions come from plain rules over our own numbers (views 24 h after posting, compared with
+// the account's own median) and, when an AI key is set, a weekly AI review of each account's recent
+// posts. Nothing changes until the member presses Approve, and every applied change stores what it
+// replaced so it can be undone.
 
 export type SuggestionRow = {
   id: string;
@@ -162,6 +166,9 @@ export async function generateSuggestions(userId: string, now = new Date()) {
       }
     }
 
+    // 7) Weekly AI review (Gemini/Claude): specific ideas from this account's own recent posts.
+    await aiReview(userId, account, now, week).catch((err) => console.error(`AI suggestions ${account.id}: ${(err as Error).message}`));
+
     // 5) Watch time (advice): Instagram viewers leave early.
     if (account.platform === "instagram") {
       const ratios = stats
@@ -253,6 +260,111 @@ export async function generateSuggestions(userId: string, now = new Date()) {
   }
 }
 
+// ---------- AI review ----------
+
+const AI_KINDS = ["title_style", "hook", "topic", "length", "hashtags", "posting_time", "engagement", "other"] as const;
+type AiSuggestion = { kind: (typeof AI_KINDS)[number]; title: string; evidence: string; action: string; writer_lesson: string };
+
+const AI_SYSTEM = `You are a short-form video growth analyst for YouTube Shorts and Instagram Reels.
+You get one account's recent posts with their results. Give up to 3 specific suggestions that would most likely raise views, watch time, shares, saves and follows for THIS account.
+
+Rules:
+- Base every suggestion on patterns in the data and cite the numbers (e.g. "question hooks: median 2,100 views vs 800 for the rest, 6 posts each"). If the data doesn't support a suggestion, don't make it.
+- Be concrete about what to do next. No generic advice ("post consistently", "use trending audio").
+- Never suggest engagement bait, misleading clickbait, buying followers, or reposting other people's content.
+- kind: one of ${AI_KINDS.join(", ")}.
+- title: an imperative under 80 characters.
+- evidence: 1–2 sentences with numbers from the data.
+- action: 1–2 sentences on exactly what to change.
+- writer_lesson: ONLY for suggestions about titles, hooks, captions or hashtags: one sentence the AI title writer should follow for future clips of this account (e.g. "Start titles with a question about the outcome."). Otherwise an empty string.`;
+
+const AI_SCHEMA = {
+  type: "object",
+  properties: {
+    suggestions: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          kind: { type: "string", enum: [...AI_KINDS] },
+          title: { type: "string" },
+          evidence: { type: "string" },
+          action: { type: "string" },
+          writer_lesson: { type: "string" },
+        },
+        required: ["kind", "title", "evidence", "action", "writer_lesson"],
+      },
+    },
+  },
+  required: ["suggestions"],
+};
+
+/** Once a week per account: the AI reads the last 30 measured posts and proposes up to 3 ideas. */
+async function aiReview(userId: string, account: AccountRow, now: Date, week: string) {
+  if (features.seoEngine === "rules") return;
+  const job = `ai-review:${account.id}`;
+  const last = await queryOne<{ last_run: Date }>("SELECT last_run FROM job_runs WHERE name = $1", [job]);
+  if (last && now.getTime() - new Date(last.last_run).getTime() < 6 * 86400_000) return;
+
+  const user = await queryOne<{ timezone: string }>("SELECT timezone FROM users WHERE id = $1", [userId]);
+  const posts = await query<{
+    title: string; caption: string; duration: number; published_at: Date;
+    views: number | null; likes: number | null; comments: number | null; shares: number | null; saves: number | null; avg_watch_sec: number | null;
+  }>(
+    `SELECT p.title, p.caption, c.duration, p.published_at, m.views::int AS views, m.likes::int AS likes, m.comments::int AS comments,
+            m.shares::int AS shares, m.saves::int AS saves, m.avg_watch_sec
+       FROM posts p JOIN clips c ON c.id = p.clip_id
+       JOIN LATERAL (SELECT * FROM metric_snapshots ms WHERE ms.post_id = p.id AND ms.hours_after >= 24 AND ms.views IS NOT NULL
+                     ORDER BY ms.hours_after ASC LIMIT 1) m ON true
+      WHERE p.account_id = $1 AND p.status = 'published'
+      ORDER BY p.published_at DESC LIMIT 30`,
+    [account.id],
+  );
+  if (posts.length < 8) return; // not enough results to learn from yet
+  await query(
+    "INSERT INTO job_runs (name, last_run) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET last_run = EXCLUDED.last_run",
+    [job, now],
+  );
+
+  const tz = user?.timezone || "UTC";
+  const platform = account.platform === "youtube" ? "YouTube Shorts" : "Instagram Reels";
+  const n = (v: number | null) => (v == null ? "?" : String(Math.round(v)));
+  const lines = posts.map((p, i) => {
+    const at = DateTime.fromJSDate(new Date(p.published_at)).setZone(tz);
+    const watch = p.avg_watch_sec != null ? `${p.avg_watch_sec.toFixed(1)}s (${Math.round((p.avg_watch_sec / Math.max(1, p.duration)) * 100)}%)` : "?";
+    const tags = (p.caption.match(/#[\p{L}\p{N}_]+/gu) || []).slice(0, 6).join(" ");
+    const hook = p.caption.split("\n").find((l) => l.trim() && !l.trim().startsWith("#"))?.slice(0, 120) ?? "";
+    return `#${i + 1} | ${at.toFormat("ccc d LLL HH:mm")} | ${Math.round(p.duration)}s | views ${n(p.views)} | watch ${watch} | likes ${n(p.likes)} | comments ${n(p.comments)} | shares ${n(p.shares)} | saves ${n(p.saves)} | title "${p.title}" | caption first line "${hook}" | ${tags}`;
+  });
+  const views = posts.map((p) => p.views ?? 0);
+  const prompt = [
+    `Account: ${account.name} on ${platform}. Times are in ${tz}.`,
+    `Median views 24 h after posting: ${fmt(median(views))} over ${posts.length} posts.`,
+    "Recent posts (newest first), metrics about 24 h after posting:",
+    ...lines,
+  ].join("\n");
+
+  const out = await aiJson<{ suggestions: AiSuggestion[] }>(AI_SYSTEM, prompt, AI_SCHEMA);
+  const list = (out?.suggestions ?? []).filter((x) => x && x.title && x.evidence && x.action).slice(0, 3);
+  for (const [i, x] of list.entries()) {
+    const kind = AI_KINDS.includes(x.kind) ? x.kind : "other";
+    const lesson = String(x.writer_lesson || "").trim().slice(0, 300);
+    await propose({
+      userId,
+      accountId: account.id,
+      type: `ai_${kind}`,
+      title: String(x.title).slice(0, 120),
+      evidence: String(x.evidence).slice(0, 600),
+      changeSummary: lesson
+        ? `${String(x.action).slice(0, 400)} Approve to teach the title writer: "${lesson}" (used for every future title and caption; can be undone).`
+        : `${String(x.action).slice(0, 400)} This is advice; nothing changes automatically.`,
+      proposedChange: lesson ? { guidance: lesson } : {},
+      canApply: Boolean(lesson),
+      dedupeKey: `ai:${account.id}:${week}:${i}`,
+    });
+  }
+}
+
 // ---------- decisions ----------
 
 export async function applySuggestion(userId: string, id: string, now = new Date()): Promise<SuggestionRow> {
@@ -273,6 +385,13 @@ export async function applySuggestion(userId: string, id: string, now = new Date
       hours = pickDailyHours(scores ?? Array(24).fill(1), Number(s.proposed_change.postsPerDay));
     }
     applied = { changes: await retimeQueuedPosts(account, user!.timezone, hours, now) };
+  } else if (s.type.startsWith("ai_") && typeof s.proposed_change.guidance === "string") {
+    // Teach the title writer: the lesson is added to every future title/caption request.
+    const prefs = { ...(user!.prefs || {}) };
+    const previous = prefs.seoGuidance ?? null;
+    applied = { key: "seoGuidance", previous };
+    const next = [...(previous ?? []).filter((g) => g !== s.proposed_change.guidance), String(s.proposed_change.guidance)].slice(-6);
+    await query("UPDATE users SET prefs = $1::jsonb WHERE id = $2", [JSON.stringify({ ...prefs, seoGuidance: next }), userId]);
   } else if (s.type === "clip_length" || s.type === "vertical_format") {
     const prefs = { ...(user!.prefs || {}) };
     const key = s.type === "clip_length" ? "recommendedClipLength" : "recommendedFormat";
