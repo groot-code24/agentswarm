@@ -4,8 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Video Clipper</title>
-<meta name="description" content="Split a long video into short clips right in your browser. Preview every clip, then download the ones you want.">
+<meta name="description" content="Split a long video into short clips for YouTube Shorts and Instagram Reels, right in your browser. Preview every clip, then download the ones you want.">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎬</text></svg>">
+<link rel="modulepreload" href="./vendor/mediabunny.js">
 <style>
   :root {
     --bg: #0f1115;
@@ -32,8 +33,11 @@
   .drop-zone .file-name { font-weight: 600; word-break: break-all; }
   .drop-zone .file-meta { color: var(--muted); font-size: .9rem; margin-top: 4px; }
 
-  .controls { margin-top: 16px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .controls { margin-top: 16px; display: grid; grid-template-columns: auto 1fr; gap: 10px 12px; align-items: center; }
+  .controls label { color: var(--muted); font-size: .92rem; }
+  .actions-row { margin-top: 16px; }
   select, button, .btn { font: inherit; font-size: .95rem; padding: 8px 14px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface-2); color: var(--text); }
+  select { max-width: 100%; }
   button, .btn { cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; }
   button.primary { background: var(--accent); color: var(--accent-ink); font-weight: 600; border-color: transparent; }
   button:disabled { opacity: .5; cursor: not-allowed; }
@@ -42,8 +46,12 @@
   #progress-wrap { margin-top: 20px; display: none; }
   #progress-bar { width: 100%; height: 10px; background: var(--surface-2); border-radius: 6px; overflow: hidden; }
   #progress-fill { height: 100%; width: 0%; background: var(--accent); transition: width .2s; }
+  #progress-fill.done { background: var(--ok); }
   .progress-row { display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-top: 10px; }
   #status-text { font-size: .9rem; color: var(--muted); }
+  .timing { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 8px; font-size: .9rem; font-variant-numeric: tabular-nums; }
+  .timing b { color: var(--text); font-weight: 600; }
+  .timing span { color: var(--muted); }
   #error { color: var(--danger); margin-top: 12px; white-space: pre-wrap; font-size: .9rem; }
   .note { color: var(--muted); font-size: .85rem; margin-top: 12px; }
 
@@ -53,10 +61,12 @@
   .results-head .actions { display: flex; gap: 8px; flex-wrap: wrap; }
 
   #grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 16px; }
+  #grid.vertical { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }
   .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; }
   .card.playing { border-color: var(--accent); }
   .card video { width: 100%; aspect-ratio: 16 / 9; background: #000; display: block; object-fit: contain; }
-  .card .meta { padding: 10px 12px; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  #grid.vertical .card video { aspect-ratio: 9 / 16; }
+  .card .meta { padding: 10px 12px; display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
   .card .title { font-weight: 600; font-size: .92rem; }
   .card .sub { color: var(--muted); font-size: .8rem; margin-top: 2px; }
   .card .btn { padding: 6px 10px; font-size: .85rem; flex-shrink: 0; }
@@ -65,13 +75,16 @@
   @media (max-width: 520px) {
     main { padding-top: 20px; }
     #grid { grid-template-columns: 1fr; }
+    #grid.vertical { grid-template-columns: 1fr 1fr; gap: 10px; }
+    .controls { grid-template-columns: 1fr; gap: 4px; }
+    .controls select { margin-bottom: 8px; }
   }
 </style>
 </head>
 <body>
 <main>
   <h1>🎬 Video Clipper</h1>
-  <p class="sub">Split a long video into short clips, preview them, and download only what you need. Everything runs in your browser — your video is never uploaded.</p>
+  <p class="sub">Turn a long video into short clips for YouTube Shorts and Instagram Reels. Preview every clip and download only what you need. Everything runs in your browser, so your video is never uploaded.</p>
 
   <div class="panel">
     <div class="drop-zone" id="drop-zone" tabindex="0" role="button" aria-label="Choose a video file">
@@ -80,15 +93,23 @@
       <input type="file" id="file-input" accept="video/*,.mkv,.avi,.m4v,.mov" hidden>
     </div>
     <div class="controls">
-      <label for="duration">Clip length:</label>
+      <label for="duration">Clip length</label>
       <select id="duration">
         <option value="15">15 seconds</option>
         <option value="30">30 seconds</option>
-        <option value="45" selected>45 seconds</option>
-        <option value="60">60 seconds</option>
-        <option value="90">90 seconds</option>
+        <option value="45">45 seconds</option>
+        <option value="60" selected>60 seconds (Shorts &amp; Reels)</option>
+        <option value="90">90 seconds (Reels)</option>
         <option value="120">2 minutes</option>
+        <option value="180">3 minutes (Shorts &amp; Reels max)</option>
       </select>
+      <label for="format">Format</label>
+      <select id="format">
+        <option value="original" selected>Original shape, fastest (no re-encoding)</option>
+        <option value="vertical">Vertical 9:16 for Shorts &amp; Reels (re-encodes, slower)</option>
+      </select>
+    </div>
+    <div class="actions-row">
       <button type="button" class="primary" id="start-btn">Split video</button>
     </div>
 
@@ -98,9 +119,14 @@
         <div id="status-text"></div>
         <button type="button" id="cancel-btn">Cancel</button>
       </div>
+      <div class="timing" aria-live="off">
+        <div><span>Time taken </span><b id="elapsed">0s</b></div>
+        <div id="eta-wrap"><span>Time left </span><b id="eta">estimating…</b></div>
+        <div id="speed-wrap" hidden><span>Speed </span><b id="speed"></b></div>
+      </div>
     </div>
     <div id="error" role="alert"></div>
-    <p class="note">Clips are cut without re-encoding, so splitting is fast and clips keep the original quality. Cuts snap to the nearest keyframe (usually within a second).</p>
+    <p class="note" id="format-note"></p>
   </div>
 
   <section id="results" aria-live="polite">
@@ -116,32 +142,30 @@
 </main>
 
 <script type="module">
-import { FFmpeg } from './vendor/ffmpeg/index.js';
-import { downloadZip } from './vendor/client-zip.js';
+import * as MB from './vendor/mediabunny.js';
 
-const CORE_URL = new URL('./vendor/ffmpeg-core/ffmpeg-core.js', location.href).href;
-const WASM_URL = new URL('./vendor/ffmpeg-core/ffmpeg-core.wasm', location.href).href;
-// Keep at most this many bytes of finished clips inside ffmpeg's in-memory
-// filesystem at once; clips are moved out to Blobs after every batch.
-const BATCH_BYTES = 300 * 1024 * 1024;
-const MAX_BATCH_CLIPS = 20;
+// A leftover shorter than this at the end of the video is merged into the last clip.
+const MIN_TAIL = 3;
+// Clips cut at the same time. Stream copy is limited by file reads, re-encoding by the encoder.
+const PARALLEL = 2;
 
 const $ = id => document.getElementById(id);
 const dropZone = $('drop-zone'), fileInput = $('file-input');
 const dropText = $('drop-text'), fileMeta = $('file-meta');
+const durationSel = $('duration'), formatSel = $('format'), formatNote = $('format-note');
 const startBtn = $('start-btn'), cancelBtn = $('cancel-btn');
 const progressWrap = $('progress-wrap'), progressFill = $('progress-fill'), statusText = $('status-text');
+const elapsedEl = $('elapsed'), etaWrap = $('eta-wrap'), etaEl = $('eta'), speedWrap = $('speed-wrap'), speedEl = $('speed');
 const errorDiv = $('error');
 const results = $('results'), resultsTitle = $('results-title'), grid = $('grid');
 const downloadAllBtn = $('download-all-btn'), clearBtn = $('clear-btn');
 
 let selectedFile = null;
-let ffmpeg = null;
-let running = false;
-let cancelled = false;
-let clips = []; // { name, blob, url, start, end, video }
+let selectedInfo = null; // { duration } once probed
+let job = null;          // the running split, see split()
+let clips = [];          // { index, name, blob, url, start, end, video, card }, sorted by index
 
-// ---------- file selection ----------
+// ---------- formatting ----------
 function formatBytes(n) {
   const units = ['B', 'KB', 'MB', 'GB', 'TB'];
   let i = 0;
@@ -154,165 +178,352 @@ function formatTime(sec) {
   const mm = String(m).padStart(h ? 2 : 1, '0'), ss = String(s).padStart(2, '0');
   return h ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
 }
+// Human duration for timers: "0.8s", "12s", "3m 05s", "1h 02m".
+function formatSpan(sec) {
+  if (sec < 10) return `${sec.toFixed(1)}s`;
+  sec = Math.round(sec);
+  if (sec < 60) return `${sec}s`;
+  const h = Math.floor(sec / 3600), m = Math.floor(sec % 3600 / 60), s = sec % 60;
+  return h ? `${h}h ${String(m).padStart(2, '0')}m` : `${m}m ${String(s).padStart(2, '0')}s`;
+}
+function errMsg(err) { return err && err.message ? err.message : String(err); }
+async function safe(p) { try { return await p; } catch { return undefined; } }
+
+// ---------- file selection ----------
 function setFile(file) {
   if (!file) return;
   selectedFile = file;
+  selectedInfo = null;
   dropText.innerHTML = '';
   const name = document.createElement('div');
   name.className = 'file-name';
   name.textContent = file.name;
   dropText.appendChild(name);
-  fileMeta.textContent = `${formatBytes(file.size)} · click to choose a different file`;
   errorDiv.textContent = '';
+  updateFileMeta();
+  // Read the length right away so the user sees how many clips they'll get.
+  probeInfo(file).then(info => {
+    if (selectedFile !== file) return;
+    selectedInfo = info;
+    updateFileMeta();
+  });
 }
-dropZone.addEventListener('click', () => { if (!running) fileInput.click(); });
-dropZone.addEventListener('keydown', e => { if ((e.key === 'Enter' || e.key === ' ') && !running) { e.preventDefault(); fileInput.click(); } });
+async function probeInfo(file) {
+  const input = new MB.Input({ source: new MB.BlobSource(file), formats: MB.ALL_FORMATS });
+  try {
+    if (!(await input.canRead())) return null;
+    return { duration: await input.computeDuration() };
+  } catch { return null; } finally { input.dispose(); }
+}
+function planRanges(duration, clipLen) {
+  let n = Math.max(1, Math.ceil(duration / clipLen));
+  if (n > 1 && duration - (n - 1) * clipLen < MIN_TAIL) n--;
+  return Array.from({ length: n }, (_, i) => ({ index: i, start: i * clipLen, end: i === n - 1 ? duration : (i + 1) * clipLen }));
+}
+function updateFileMeta() {
+  if (!selectedFile) return;
+  const parts = [formatBytes(selectedFile.size)];
+  if (selectedInfo && selectedInfo.duration) {
+    parts.push(formatTime(selectedInfo.duration));
+    parts.push(`${planRanges(selectedInfo.duration, +durationSel.value).length} clips`);
+  }
+  fileMeta.textContent = parts.join(' · ') + ' · click to choose a different file';
+}
+function updateFormatNote() {
+  const vertical = formatSel.value === 'vertical';
+  formatNote.textContent = vertical
+    ? 'Vertical mode center-crops each clip to 9:16 and re-encodes it with your device\'s video encoder. Frames are exact, but it takes much longer than Original.'
+    : 'Clips are copied without re-encoding, so they keep the original quality and a 1-hour video takes seconds. Cuts snap to the nearest keyframe (usually within a second).';
+}
+dropZone.addEventListener('click', () => { if (!job) fileInput.click(); });
+dropZone.addEventListener('keydown', e => { if ((e.key === 'Enter' || e.key === ' ') && !job) { e.preventDefault(); fileInput.click(); } });
 dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
 dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
 dropZone.addEventListener('drop', e => {
   e.preventDefault();
   dropZone.classList.remove('dragover');
-  if (!running && e.dataTransfer.files.length) setFile(e.dataTransfer.files[0]);
+  if (!job && e.dataTransfer.files.length) setFile(e.dataTransfer.files[0]);
 });
 fileInput.addEventListener('change', () => { if (fileInput.files.length) setFile(fileInput.files[0]); });
+durationSel.addEventListener('change', updateFileMeta);
+formatSel.addEventListener('change', updateFormatNote);
+updateFormatNote();
 
-// ---------- ffmpeg ----------
-let logListener = null;
+// ---------- progress + timer ----------
+function setStatus(text) { statusText.textContent = text; }
+function setProgress(frac) {
+  if (!job) return;
+  job.fraction = Math.max(job.fraction, Math.max(0, Math.min(1, frac)));
+  progressFill.style.width = `${(job.fraction * 100).toFixed(1)}%`;
+}
+function tick() {
+  if (!job) return;
+  const elapsed = (performance.now() - job.t0) / 1000;
+  elapsedEl.textContent = formatSpan(elapsed);
+  const f = job.fraction;
+  // Wait for a little progress before extrapolating, otherwise the estimate jumps around.
+  if (f > 0.02 && elapsed > 0.5) {
+    etaEl.textContent = `~${formatSpan(elapsed / f * (1 - f))}`;
+    if (job.duration) {
+      speedWrap.hidden = false;
+      speedEl.textContent = `${Math.max(0.1, (job.duration * f) / elapsed).toFixed(1)}× real time`;
+    }
+  } else {
+    etaEl.textContent = 'estimating…';
+  }
+}
+
+// ---------- splitting ----------
+async function split() {
+  if (!selectedFile) { errorDiv.textContent = 'Please choose a video file first.'; return; }
+  const file = selectedFile;
+  const clipLen = +durationSel.value;
+  const vertical = formatSel.value === 'vertical';
+
+  errorDiv.textContent = '';
+  clearClips();
+  grid.classList.toggle('vertical', vertical);
+  job = { t0: performance.now(), fraction: 0, duration: 0, cancelled: false, active: new Set(), expected: 0 };
+  const thisJob = job;
+  job.timer = setInterval(tick, 250);
+  startBtn.disabled = true;
+  cancelBtn.disabled = false;
+  progressWrap.style.display = 'block';
+  progressFill.classList.remove('done');
+  progressFill.style.width = '0%';
+  etaWrap.hidden = false;
+  speedWrap.hidden = true;
+  tick();
+
+  try {
+    setStatus('Reading video...');
+    const handled = await splitWithMediabunny(file, clipLen, vertical, thisJob);
+    if (!handled && !thisJob.cancelled) {
+      if (vertical) throw new Error('Vertical mode supports MP4, MOV, WebM and MKV files. Choose "Original shape" for this file.');
+      await splitWithFFmpeg(file, clipLen, thisJob);
+    }
+    if (!thisJob.cancelled) {
+      const took = (performance.now() - thisJob.t0) / 1000;
+      setProgress(1);
+      progressFill.classList.add('done');
+      elapsedEl.textContent = formatSpan(took);
+      etaWrap.hidden = true;
+      if (thisJob.duration) {
+        speedWrap.hidden = false;
+        speedEl.textContent = `${(thisJob.duration / took).toFixed(1)}× real time`;
+      }
+      setStatus(`Done! ${clips.length} clips ready in ${formatSpan(took)}. Preview them below.`);
+      cancelBtn.disabled = true;
+    }
+  } catch (err) {
+    if (!thisJob.cancelled) {
+      console.error(err);
+      errorDiv.textContent = 'Error while processing: ' + errMsg(err);
+      progressWrap.style.display = clips.length ? 'block' : 'none';
+      setStatus(clips.length ? `Stopped after ${clips.length} clips.` : '');
+      cancelBtn.disabled = true;
+    }
+  } finally {
+    clearInterval(thisJob.timer);
+    if (job === thisJob) job = null;
+    startBtn.disabled = false;
+    updateResultsTitle();
+    if (!clips.length) results.style.display = 'none';
+  }
+}
+
+// Main engine: mediabunny reads only the parts of the file each clip needs
+// and copies the compressed frames straight into a new file.
+async function splitWithMediabunny(file, clipLen, vertical, job) {
+  const input = new MB.Input({ source: new MB.BlobSource(file), formats: MB.ALL_FORMATS });
+  try { return await cutAllWithMediabunny(input, file, clipLen, vertical, job); }
+  finally { input.dispose(); }
+}
+
+async function cutAllWithMediabunny(input, file, clipLen, vertical, job) {
+  if (!(await safe(input.canRead()))) return false;
+  const videoTrack = await safe(input.getPrimaryVideoTrack());
+  const duration = await safe(input.computeDuration());
+  if (!videoTrack || !duration) return false;
+  job.duration = duration;
+
+  const ranges = planRanges(duration, clipLen);
+  job.expected = ranges.length;
+  const baseName = file.name.replace(/\.[^.]+$/, '');
+  const pad = String(ranges.length).length;
+
+  let videoOptions;
+  if (vertical) {
+    const even = n => Math.max(2, Math.round(n / 2) * 2);
+    // Keep the source's height (capped at 1080x1920) and center-crop the width, so nothing is upscaled.
+    const height = even(Math.min(1920, videoTrack.displayHeight));
+    const width = even(height * 9 / 16);
+    if (!(await MB.canEncodeVideo('avc', { width, height }))) {
+      throw new Error("This browser can't encode H.264 video, which vertical mode needs. Try Chrome or Edge, or choose \"Original shape\".");
+    }
+    videoOptions = { width, height, fit: 'cover', codec: 'avc', bitrate: new MB.Quality('high'), hardwareAcceleration: 'prefer-hardware' };
+  }
+  const copy = vertical ? { shiftTolerance: Infinity } : { mode: 'forced', shiftTolerance: Infinity };
+
+  // Pick a container that can hold the source codecs without re-encoding them.
+  const isWebm = /\.webm$/i.test(file.name);
+  let kinds = vertical ? ['mp4'] : isWebm ? ['webm', 'mkv'] : ['mp4', 'mkv'];
+  const makeOutput = kind => new MB.Output({
+    format: kind === 'mp4' ? new MB.Mp4OutputFormat({ fastStart: 'in-memory' })
+      : kind === 'webm' ? new MB.WebMOutputFormat() : new MB.MkvOutputFormat(),
+    target: new MB.BufferTarget(),
+  });
+
+  async function cut(range) {
+    for (const kind of kinds) {
+      const output = makeOutput(kind);
+      const conversion = await MB.Conversion.init({
+        input, output, tracks: 'primary', video: videoOptions, copy, showWarnings: false,
+        trim: { start: range.start, end: range.end },
+      });
+      if (!conversion.isValid || !conversion.utilizedTracks.includes(videoTrack)) continue;
+      kinds = [kind]; // remember what worked for the rest of the clips
+      job.active.add(conversion);
+      conversion.onProgress = p => { inflight.set(range.index, p); report(); };
+      try { await conversion.execute(); } finally { job.active.delete(conversion); }
+      return { kind, buffer: output.target.buffer };
+    }
+    return null;
+  }
+
+  // Progress = finished seconds + the running share of in-flight clips.
+  const inflight = new Map();
+  let doneSeconds = 0;
+  const report = () => {
+    let s = doneSeconds;
+    for (const [i, p] of inflight) s += p * (ranges[i].end - ranges[i].start);
+    setProgress(s / duration);
+  };
+
+  results.style.display = 'block';
+  updateResultsTitle();
+
+  // The first clip decides the container; if nothing fits, hand over to ffmpeg.
+  setStatus(`Cutting clip 1 of ${ranges.length}...`);
+  const first = await cut(ranges[0]);
+  if (job.cancelled) return true;
+  if (!first) return false;
+  const ext = { mp4: '.mp4', webm: '.webm', mkv: '.mkv' }[first.kind];
+  const emit = (range, buffer) => {
+    inflight.delete(range.index);
+    doneSeconds += range.end - range.start;
+    report();
+    addClip({
+      index: range.index,
+      name: `${baseName}_clip_${String(range.index + 1).padStart(pad, '0')}${vertical ? '_vertical' : ''}${ext}`,
+      blob: new Blob([buffer], { type: mimeFor(ext) }),
+      start: range.start,
+      end: range.end,
+    });
+    setStatus(`Cut ${clips.length} of ${ranges.length} clips...`);
+  };
+  emit(ranges[0], first.buffer);
+
+  let next = 1;
+  async function worker() {
+    while (next < ranges.length && !job.cancelled) {
+      const range = ranges[next++];
+      const result = await cut(range);
+      if (job.cancelled) return;
+      if (!result) throw new Error(`Could not cut clip ${range.index + 1}.`);
+      emit(range, result.buffer);
+    }
+  }
+  await Promise.all(Array.from({ length: PARALLEL }, worker));
+  return true;
+}
+
+// Fallback engine (e.g. AVI files): ffmpeg compiled to WebAssembly. It is only
+// downloaded (~30 MB, then cached) when a file needs it.
+let ffmpeg = null;
+let ffLog = null;
 async function getFFmpeg() {
   if (ffmpeg) return ffmpeg;
+  setStatus('This format needs the full video engine. Downloading it (~30 MB, first time only)...');
+  const { FFmpeg } = await import('./vendor/ffmpeg/index.js');
   const instance = new FFmpeg();
-  instance.on('log', ({ message }) => logListener && logListener(message));
-  setStatus('Loading video engine (first time only, ~30 MB)...');
-  await instance.load({ coreURL: CORE_URL, wasmURL: WASM_URL });
+  instance.on('log', ({ message }) => ffLog && ffLog(message));
+  await instance.load({
+    coreURL: new URL('./vendor/ffmpeg-core/ffmpeg-core.js', location.href).href,
+    wasmURL: new URL('./vendor/ffmpeg-core/ffmpeg-core.wasm', location.href).href,
+  });
   ffmpeg = instance;
   return ffmpeg;
 }
-
 function parseTime(str) {
   const [h, m, s] = str.split(':');
   return (+h) * 3600 + (+m) * 60 + parseFloat(s);
 }
 
-async function probeDuration(ff, inputPath) {
+async function splitWithFFmpeg(file, clipLen, job) {
+  const ff = await getFFmpeg();
+  if (job.cancelled) return;
+  // Mount the file read-only instead of copying it into memory.
+  await safe(ff.unmount('/input'));
+  await safe(ff.createDir('/input'));
+  await safe(ff.createDir('/out'));
+  await ff.mount('WORKERFS', { files: [file] }, '/input');
+  const inputPath = `/input/${file.name}`;
+
+  setStatus('Reading video...');
   let duration = null;
-  logListener = msg => {
+  ffLog = msg => {
     const m = msg.match(/Duration:\s*(\d+:\d+:\d+(?:\.\d+)?)/);
     if (m && duration === null) duration = parseTime(m[1]);
   };
-  await ff.exec(['-hide_banner', '-i', inputPath]); // exits non-zero (no output), but prints the header
-  logListener = null;
-  if (duration) return duration;
-  // Fallback: ask the browser (works for most mp4/webm/mov files).
-  return await new Promise(resolve => {
-    const v = document.createElement('video');
-    const url = URL.createObjectURL(selectedFile);
-    v.preload = 'metadata';
-    v.onloadedmetadata = () => { URL.revokeObjectURL(url); resolve(isFinite(v.duration) ? v.duration : null); };
-    v.onerror = () => { URL.revokeObjectURL(url); resolve(null); };
-    v.src = url;
-  });
-}
+  await ff.exec(['-hide_banner', '-i', inputPath]); // exits non-zero, but prints the header
+  ffLog = null;
+  if (!duration) throw new Error('Could not read the video length. The file may be corrupted or in an unsupported format.');
+  job.duration = duration;
 
-async function safe(p) { try { return await p; } catch { return undefined; } }
+  // Cut in batches so finished clips never pile up inside ffmpeg's memory.
+  const total = Math.max(1, Math.ceil((duration - 0.5) / clipLen));
+  job.expected = total;
+  const perBatch = Math.max(1, Math.min(20, Math.floor(300 * 1024 * 1024 / (file.size / duration * clipLen))));
+  const inExt = (file.name.match(/\.[^.]+$/) || [''])[0].toLowerCase();
+  const baseName = file.name.replace(/\.[^.]+$/, '');
+  let outExt = '.mp4';
+  results.style.display = 'block';
 
-// ---------- splitting ----------
-async function split() {
-  if (!selectedFile) { errorDiv.textContent = 'Please choose a video file first.'; return; }
-  const clipLen = +$('duration').value;
-  const file = selectedFile;
-  errorDiv.textContent = '';
-  clearClips();
-  running = true;
-  cancelled = false;
-  startBtn.disabled = true;
-  cancelBtn.disabled = false;
-  progressWrap.style.display = 'block';
-  setProgress(0);
-
-  try {
-    const ff = await getFFmpeg();
-    if (cancelled) return;
-
-    // Mount the file read-only instead of copying it into memory, so
-    // multi-GB videos don't have to fit in RAM.
-    await safe(ff.unmount('/input'));
-    await safe(ff.createDir('/input'));
-    await safe(ff.createDir('/out'));
-    await ff.mount('WORKERFS', { files: [file] }, '/input');
-    const inputPath = `/input/${file.name}`;
-
-    setStatus('Reading video...');
-    const duration = await probeDuration(ff, inputPath);
-    if (!duration) throw new Error('Could not read the video length. The file may be corrupted or in an unsupported format.');
-
-    const total = Math.max(1, Math.ceil((duration - 0.5) / clipLen));
-    const bytesPerClip = file.size / duration * clipLen;
-    const perBatch = Math.max(1, Math.min(MAX_BATCH_CLIPS, Math.floor(BATCH_BYTES / bytesPerClip)));
-    const inExt = (file.name.match(/\.[^.]+$/) || [''])[0].toLowerCase();
-    const baseName = file.name.replace(/\.[^.]+$/, '');
-    let outExt = '.mp4';
-
-    results.style.display = 'block';
-    updateResultsTitle(total);
-
-    for (let first = 0; first < total && !cancelled; first += perBatch) {
-      const count = Math.min(perBatch, total - first);
-      const batchStart = first * clipLen;
-      const batchLen = count * clipLen;
-
-      logListener = msg => {
-        const m = msg.match(/time=(\d+:\d+:\d+(?:\.\d+)?)/);
-        if (m) setProgress((batchStart + Math.min(parseTime(m[1]), batchLen)) / duration);
-      };
-      setStatus(`Cutting clips ${first + 1}–${first + count} of ${total}...`);
-
-      let segs = await cutBatch(ff, inputPath, batchStart, batchLen, clipLen, outExt);
-      if (!segs.length && first === 0 && outExt !== inExt && ['.mkv', '.webm', '.mov'].includes(inExt)) {
-        // Some codecs can't go into .mp4; keep the original container instead.
-        outExt = inExt;
-        segs = await cutBatch(ff, inputPath, batchStart, batchLen, clipLen, outExt);
-      }
-      logListener = null;
-      if (cancelled) break;
-      if (!segs.length) throw new Error(`ffmpeg could not cut this video (clips ${first + 1}–${first + count}). The format may be unsupported.`);
-
-      for (const seg of segs) {
-        const data = await ff.readFile(`/out/${seg.file}`);
-        await ff.deleteFile(`/out/${seg.file}`);
-        // A cut that lands just past the batch end leaves a sub-second sliver;
-        // the next batch starts from the keyframe before it, so nothing is lost.
-        if (seg.end - seg.start < Math.min(1, clipLen / 20) && segs.length > 1) continue;
-        const index = clips.length + 1;
-        addClip({
-          name: `${baseName}_clip_${String(index).padStart(String(total).length, '0')}${outExt}`,
-          blob: new Blob([data], { type: mimeFor(outExt) }),
-          start: Math.max(0, batchStart + seg.start),
-          end: Math.min(duration, batchStart + seg.end),
-        });
-      }
-      setProgress(Math.min(1, (first + count) / total));
-      updateResultsTitle(total);
+  for (let first = 0; first < total && !job.cancelled; first += perBatch) {
+    const count = Math.min(perBatch, total - first);
+    const batchStart = first * clipLen;
+    const batchLen = count * clipLen;
+    ffLog = msg => {
+      const m = msg.match(/time=(\d+:\d+:\d+(?:\.\d+)?)/);
+      if (m) setProgress((batchStart + Math.min(parseTime(m[1]), batchLen)) / duration);
+    };
+    setStatus(`Cutting clips ${first + 1}–${first + count} of ${total}...`);
+    let segs = await cutBatch(ff, inputPath, batchStart, batchLen, clipLen, outExt);
+    if (!segs.length && first === 0 && ['.mkv', '.webm', '.mov'].includes(inExt)) {
+      outExt = inExt; // some codecs can't go into .mp4; keep the original container
+      segs = await cutBatch(ff, inputPath, batchStart, batchLen, clipLen, outExt);
     }
-
-    await safe(ff.unmount('/input'));
-    if (!cancelled) {
-      setProgress(1);
-      setStatus(`Done! ${clips.length} clips ready — preview them below.`);
-      cancelBtn.disabled = true;
-      updateResultsTitle();
+    ffLog = null;
+    if (job.cancelled) break;
+    if (!segs.length) throw new Error(`Could not cut this video (clips ${first + 1}–${first + count}). The format may be unsupported.`);
+    for (const seg of segs) {
+      const data = await ff.readFile(`/out/${seg.file}`);
+      await ff.deleteFile(`/out/${seg.file}`);
+      // A cut just past the batch end leaves a sub-second sliver; the next batch covers it.
+      if (seg.end - seg.start < Math.min(1, clipLen / 20) && segs.length > 1) continue;
+      const index = clips.length;
+      addClip({
+        index,
+        name: `${baseName}_clip_${String(index + 1).padStart(String(total).length, '0')}${outExt}`,
+        blob: new Blob([data], { type: mimeFor(outExt) }),
+        start: Math.max(0, batchStart + seg.start),
+        end: Math.min(duration, batchStart + seg.end),
+      });
     }
-  } catch (err) {
-    if (!cancelled) {
-      console.error(err);
-      errorDiv.textContent = 'Error while processing: ' + (err && err.message ? err.message : err);
-      progressWrap.style.display = 'none';
-    }
-  } finally {
-    logListener = null;
-    running = false;
-    startBtn.disabled = false;
-    if (!clips.length) results.style.display = 'none';
+    setProgress((first + count) / total);
   }
+  await safe(ff.unmount('/input'));
 }
 
 async function cutBatch(ff, inputPath, start, length, clipLen, ext) {
@@ -341,23 +552,26 @@ function mimeFor(ext) {
 }
 
 function cancel() {
-  if (!running) return;
-  cancelled = true;
-  if (ffmpeg) { ffmpeg.terminate(); ffmpeg = null; } // a fresh engine is loaded next time (cached by the browser)
-  logListener = null;
-  running = false;
+  if (!job) return;
+  const j = job;
+  j.cancelled = true;
+  for (const c of j.active) safe(c.cancel());
+  if (ffmpeg) { ffmpeg.terminate(); ffmpeg = null; } // reloaded from the browser cache next time
+  ffLog = null;
+  clearInterval(j.timer);
+  job = null;
   startBtn.disabled = false;
   cancelBtn.disabled = true;
-  setStatus(clips.length ? `Cancelled. Kept ${clips.length} clips made so far.` : 'Cancelled.');
+  etaWrap.hidden = true;
+  setStatus(clips.length ? `Cancelled. Kept the ${clips.length} clips made so far.` : 'Cancelled.');
   updateResultsTitle();
   if (!clips.length) results.style.display = 'none';
 }
 
 // ---------- results / preview ----------
-function setProgress(frac) { progressFill.style.width = `${(Math.max(0, Math.min(1, frac)) * 100).toFixed(1)}%`; }
-function setStatus(text) { statusText.textContent = text; }
-function updateResultsTitle(expected) {
+function updateResultsTitle() {
   const size = clips.reduce((n, c) => n + c.blob.size, 0);
+  const expected = job && job.expected;
   resultsTitle.textContent = expected && clips.length < expected
     ? `Clips (${clips.length} of ${expected})`
     : `Clips (${clips.length}) · ${formatBytes(size)}`;
@@ -394,21 +608,23 @@ function addClip(clip) {
     card.classList.add('playing');
   });
   video.addEventListener('pause', () => card.classList.remove('playing'));
-  video.addEventListener('error', () => {
+  const noPreview = () => {
     if (!video.getAttribute('src') || card.querySelector('.no-preview')) return;
     const msg = document.createElement('div');
     msg.className = 'no-preview';
     msg.textContent = "Your browser can't preview this format, but the download works.";
     card.appendChild(msg);
-  });
-  clip.video = video;
+  };
+  video.addEventListener('error', noPreview);
+  // Audio plays but the video codec isn't supported (e.g. old AVI codecs).
+  video.addEventListener('loadedmetadata', () => { if (!video.videoWidth) noPreview(); });
 
   const meta = document.createElement('div');
   meta.className = 'meta';
   const info = document.createElement('div');
   const title = document.createElement('div');
   title.className = 'title';
-  title.textContent = `Clip ${clips.length + 1}`;
+  title.textContent = `Clip ${clip.index + 1}`;
   const sub = document.createElement('div');
   sub.className = 'sub';
   sub.textContent = `${formatTime(clip.start)} – ${formatTime(clip.end)} · ${formatBytes(clip.blob.size)}`;
@@ -421,11 +637,16 @@ function addClip(clip) {
   dl.textContent = '⬇ Download';
   dl.title = clip.name;
   meta.append(info, dl);
-
   card.append(video, meta);
-  grid.appendChild(card);
-  clips.push(clip);
+  clip.video = video;
+  clip.card = card;
+
+  // Clips can finish out of order when cut in parallel; keep the grid sorted.
+  const pos = clips.findIndex(c => c.index > clip.index);
+  if (pos === -1) { clips.push(clip); grid.appendChild(card); }
+  else { grid.insertBefore(card, clips[pos].card); clips.splice(pos, 0, clip); }
   observer.observe(video);
+  updateResultsTitle();
 }
 
 function clearClips() {
@@ -454,11 +675,12 @@ async function downloadAll() {
       setStatus(`Saved ${clips.length} clips to "${dir.name}".`);
     } else {
       setStatus('Building ZIP...');
+      const { downloadZip } = await import('./vendor/client-zip.js');
       const zip = await downloadZip(clips.map(c => ({ name: c.name, input: c.blob, lastModified: new Date() }))).blob();
       const url = URL.createObjectURL(zip);
       const a = document.createElement('a');
       a.href = url;
-      a.download = clips[0].name.replace(/_clip_\d+\.[^.]+$/, '') + '_clips.zip';
+      a.download = clips[0].name.replace(/_clip_\d+.*$/, '') + '_clips.zip';
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -466,7 +688,7 @@ async function downloadAll() {
       setStatus(`ZIP with ${clips.length} clips downloaded.`);
     }
   } catch (err) {
-    errorDiv.textContent = 'Could not save clips: ' + (err && err.message ? err.message : err);
+    errorDiv.textContent = 'Could not save clips: ' + errMsg(err);
   } finally {
     downloadAllBtn.disabled = !clips.length;
   }
@@ -476,12 +698,12 @@ startBtn.addEventListener('click', split);
 cancelBtn.addEventListener('click', cancel);
 downloadAllBtn.addEventListener('click', downloadAll);
 clearBtn.addEventListener('click', () => {
-  if (running) cancel();
+  if (job) cancel();
   clearClips();
   progressWrap.style.display = 'none';
 });
 // Clips live only in this tab's memory — warn before they're lost.
-window.addEventListener('beforeunload', e => { if (clips.length || running) { e.preventDefault(); e.returnValue = ''; } });
+window.addEventListener('beforeunload', e => { if (clips.length || job) { e.preventDefault(); e.returnValue = ''; } });
 </script>
 </body>
 </html>

@@ -1,4 +1,4 @@
-// Copies the browser builds of ffmpeg.wasm and client-zip into public/vendor
+// Copies the browser builds of mediabunny, ffmpeg.wasm and client-zip into public/vendor
 // so the site serves them from its own origin (Vercel runs this as the build step).
 import { cpSync, mkdirSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -11,7 +11,9 @@ const vendor = join(root, "public", "vendor");
 rmSync(vendor, { recursive: true, force: true });
 mkdirSync(vendor, { recursive: true });
 
-// @ffmpeg/ffmpeg: ES module wrapper + its worker (must be same-origin).
+// mediabunny: the main (fast) engine — reads only the bytes each clip needs.
+cpSync(join(nm, "mediabunny", "dist", "bundles", "mediabunny.min.mjs"), join(vendor, "mediabunny.js"));
+// @ffmpeg/ffmpeg: fallback engine for formats mediabunny can't read (e.g. AVI). ES module wrapper + its worker (must be same-origin).
 cpSync(join(nm, "@ffmpeg", "ffmpeg", "dist", "esm"), join(vendor, "ffmpeg"), {
   recursive: true,
   filter: (src) => !src.endsWith(".d.ts") && !src.endsWith(".d.mts"),
