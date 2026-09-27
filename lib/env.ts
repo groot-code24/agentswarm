@@ -57,7 +57,10 @@ export function configProblems(): string[] {
   if (env.allowedEmails.length === 0) problems.push("ALLOWED_EMAILS is empty, so nobody can log in.");
   if (isProd) {
     if (!env.databaseUrl) problems.push("DATABASE_URL is required in production.");
-    if (!features.s3) problems.push("S3_* storage settings are required in production.");
+    if (!features.s3) {
+      const missing = (["S3_ENDPOINT", "S3_BUCKET", "S3_ACCESS_KEY_ID", "S3_SECRET_ACCESS_KEY"] as const).filter((k) => !process.env[k]);
+      problems.push(`Clip storage (Cloudflare R2) is not set up. Missing in Vercel: ${missing.join(", ")}. See SETUP.md step 2.`);
+    }
     if (!features.googleLogin) problems.push("GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET are required in production.");
     if (!env.cronSecret) problems.push("CRON_SECRET is required in production.");
   }
