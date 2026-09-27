@@ -140,4 +140,21 @@ CREATE TABLE IF NOT EXISTS job_runs (
   name     TEXT PRIMARY KEY,         -- periodic jobs (daily refreshes) remember when they last ran
   last_run TIMESTAMPTZ NOT NULL
 );
+
+-- Added later (idempotent): optimized titles/captions/tags.
+ALTER TABLE source_videos ADD COLUMN IF NOT EXISTS seo_mode TEXT NOT NULL DEFAULT 'as_written';
+ALTER TABLE source_videos ADD COLUMN IF NOT EXISTS topic TEXT NOT NULL DEFAULT '';
+ALTER TABLE source_videos ADD COLUMN IF NOT EXISTS language TEXT NOT NULL DEFAULT '';
+ALTER TABLE clips ADD COLUMN IF NOT EXISTS seo JSONB;
+ALTER TABLE posts ADD COLUMN IF NOT EXISTS tags TEXT[];
+
+-- Who may sign in: the admin approves requests in the Admin panel (ADMIN_EMAIL is always allowed).
+CREATE TABLE IF NOT EXISTS access_list (
+  email        TEXT PRIMARY KEY,
+  status       TEXT NOT NULL CHECK (status IN ('approved', 'pending', 'blocked')),
+  name         TEXT,
+  requested_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  decided_at   TIMESTAMPTZ,
+  decided_by   TEXT
+);
 `;

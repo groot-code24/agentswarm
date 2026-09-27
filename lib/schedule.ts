@@ -4,19 +4,20 @@ import type { User } from "./session";
 import { audit } from "./session";
 import { bestTimes, listAccounts } from "./accounts";
 import { planSlots, formatHours, type Stage } from "./planner";
-import { buildInstagramCaption, buildYouTubeText } from "./captions";
+import { buildInstagramCaption, buildOptimizedInstagram, buildOptimizedYouTube, buildYouTubeText } from "./captions";
+import type { ClipSeo } from "./seo";
 import type { AccountRow } from "./platforms/types";
-import { env } from "./env";
 import { storageBackend } from "./storage";
+import { memberCount } from "./access";
 
 const MB = 1024 * 1024;
 /**
  * Most clip bytes one member may have waiting in storage. Vercel Blob's free plan holds about
  * 1 GB for the whole team, so there the space is shared out between the members.
  */
-export function queueCapBytes(): number {
+export async function queueCapBytes(): Promise<number> {
   if (storageBackend() !== "blob") return 1024 * MB;
-  return Math.floor((900 * MB) / Math.max(1, env.allowedEmails.length));
+  return Math.floor((900 * MB) / Math.max(1, await memberCount()));
 }
 export const ACTIVE_POST_STATUSES = ["queued", "uploading", "processing"];
 
@@ -33,6 +34,9 @@ export type SourceVideo = {
   title: string;
   description: string;
   hashtags: string;
+  seo_mode: "optimize" | "as_written";
+  topic: string;
+  language: string;
 };
 
 export type ClipRow = {
@@ -48,6 +52,7 @@ export type ClipRow = {
   start_sec: number;
   content_type: string;
   status: string;
+  seo: ClipSeo | null;
 };
 
 export async function queueBytes(userId: string): Promise<number> {
@@ -85,7 +90,16 @@ export type AccountPlan = {
   lastAt: string | null;
 };
 
-function textFor(source: SourceVideo, clip: ClipRow, totalParts: number, platform: string) {
+function textFor(source: SourceVideo, clip: ClipRow, totalParts: number, platform: string): { title: string; caption: string; tags: string[] | null } {
+  const seo = source.seo_mode === "optimize" ? clip.seo : null;
+  if (seo) {
+    if (platform === "youtube") {
+      const yt = buildOptimizedYouTube(seo, { vertical: source.format === "vertical", duration: clip.duration });
+      return { title: yt.title, caption: yt.description, tags: yt.tags };
+    }
+    const caption = buildOptimizedInstagram(seo, { part: clip.idx + 1, totalParts });
+    return { title: seo.youtube.title, caption, tags: null };
+  }
   const common = {
     title: source.title,
     filename: source.filename,
@@ -96,10 +110,10 @@ function textFor(source: SourceVideo, clip: ClipRow, totalParts: number, platfor
   };
   if (platform === "youtube") {
     const yt = buildYouTubeText({ ...common, vertical: source.format === "vertical", duration: clip.duration });
-    return { title: yt.title, caption: yt.description };
+    return { title: yt.title, caption: yt.description, tags: yt.tags };
   }
   const caption = buildInstagramCaption(common);
-  return { title: caption.split("\n")[0], caption };
+  return { title: caption.split("\n")[0], caption, tags: null };
 }
 
 /** Works out when each clip would go out on each selected account. Nothing is saved. */
@@ -153,12 +167,12 @@ export async function commitPlan(user: User, source: SourceVideo, now = new Date
   for (const plan of plans) {
     for (const slot of plan.slots) {
       const clip = byId.get(slot.clipId)!;
-      const { title, caption } = textFor(source, clip, total, plan.platform);
+      const { title, caption, tags } = textFor(source, clip, total, plan.platform);
       const rows = await query(
-        `INSERT INTO posts (id, clip_id, account_id, user_id, platform, scheduled_at, title, caption, idempotency_key)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        `INSERT INTO posts (id, clip_id, account_id, user_id, platform, scheduled_at, title, caption, tags, idempotency_key)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
          ON CONFLICT (idempotency_key) DO NOTHING RETURNING id`,
-        [newId(), clip.id, plan.accountId, user.id, plan.platform, slot.at, title, caption, `${clip.id}:${plan.accountId}`],
+        [newId(), clip.id, plan.accountId, user.id, plan.platform, slot.at, title, caption, tags, `${clip.id}:${plan.accountId}`],
       );
       created += rows.length;
     }
@@ -176,12 +190,12 @@ export async function createPostNow(user: User, clipId: string, accounts: Accoun
   const source = await getSource(user, clip.source_video_id);
   const ids: string[] = [];
   for (const account of accounts) {
-    const { title, caption } = textFor(source, clip, 0, account.platform);
+    const { title, caption, tags } = textFor(source, clip, 0, account.platform);
     const rows = await query<{ id: string }>(
-      `INSERT INTO posts (id, clip_id, account_id, user_id, platform, scheduled_at, title, caption, idempotency_key)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      `INSERT INTO posts (id, clip_id, account_id, user_id, platform, scheduled_at, title, caption, tags, idempotency_key)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
        ON CONFLICT (idempotency_key) DO NOTHING RETURNING id`,
-      [newId(), clip.id, account.id, user.id, account.platform, now, title, caption, `${clip.id}:${account.id}`],
+      [newId(), clip.id, account.id, user.id, account.platform, now, title, caption, tags, `${clip.id}:${account.id}`],
     );
     if (rows[0]) ids.push(rows[0].id);
   }

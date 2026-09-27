@@ -8,10 +8,10 @@ import { Logo } from "@/components/Sidebar";
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Sign in" };
 
-export default async function LoginPage({ searchParams }: { searchParams: Promise<{ error?: string }> }) {
+export default async function LoginPage({ searchParams }: { searchParams: Promise<{ error?: string; requested?: string }> }) {
   const problems = configProblems();
   if (!problems.length && (await currentUser().catch(() => null))) redirect("/");
-  const { error } = await searchParams;
+  const { error, requested } = await searchParams;
   return (
     <div className="auth">
       <section className="auth-hero">
@@ -41,7 +41,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
       <section className="auth-panel">
         <div className="auth-card">
           <h2>Welcome back</h2>
-          <p className="muted" style={{ margin: "0 0 20px" }}>Private team tool. Sign in with your team Google account.</p>
+          <p className="muted" style={{ margin: "0 0 20px" }}>Private tool. Sign in with Google; new people need the admin&apos;s approval first.</p>
           <div className="stack">
             {problems.length > 0 && (
               <div className="notice error">
@@ -51,6 +51,15 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
                   <ul style={{ margin: "6px 0 0", paddingLeft: 18 }}>
                     {problems.map((p) => <li key={p}>{p}</li>)}
                   </ul>
+                </div>
+              </div>
+            )}
+            {requested && (
+              <div className="notice ok">
+                <Icon name="clock" size={18} />
+                <div>
+                  <b>Request sent.</b> The admin needs to approve <b>{requested}</b> before you can sign in. You&apos;ll get an email when
+                  it&apos;s approved; then sign in with Google again.
                 </div>
               </div>
             )}
@@ -66,7 +75,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
               </div>
             )}
           </div>
-          <p className="fine"><Icon name="shield" size={12} /> Only emails on the team list can sign in.</p>
+          <p className="fine"><Icon name="shield" size={12} /> Only people the admin has approved can sign in.</p>
         </div>
       </section>
     </div>

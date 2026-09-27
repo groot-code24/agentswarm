@@ -11,12 +11,14 @@ type Props = {
   suggestions: number;
   attention: number;
   dryRun: boolean;
+  isAdmin: boolean;
+  pendingAccess: number;
 };
 
 type Item = { href: string; label: string; icon: IconName; badge?: number; danger?: boolean };
 
 // Desktop: full sidebar. Tablet: icon rail. Phone: top bar + slide-in drawer + bottom tab bar.
-export default function Sidebar({ name, email, suggestions, attention, dryRun }: Props) {
+export default function Sidebar({ name, email, suggestions, attention, dryRun, isAdmin, pendingAccess }: Props) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
 
@@ -48,7 +50,13 @@ export default function Sidebar({ name, email, suggestions, attention, dryRun }:
         { href: "/suggestions", label: "Suggestions", icon: "bulb", badge: suggestions },
       ],
     },
-    { title: "Account", items: [{ href: "/settings", label: "Settings", icon: "settings" }] },
+    {
+      title: "Account",
+      items: [
+        { href: "/settings", label: "Settings", icon: "settings" },
+        ...(isAdmin ? [{ href: "/admin", label: "Admin", icon: "shield" as const, badge: pendingAccess, danger: true }] : []),
+      ],
+    },
   ];
   const isActive = (href: string) => (href === "/" ? pathname === "/" : pathname.startsWith(href));
   const initial = (name || email).trim().charAt(0).toUpperCase();
@@ -139,7 +147,7 @@ export default function Sidebar({ name, email, suggestions, attention, dryRun }:
         <button className="tab" onClick={() => setOpen(true)} aria-label="More">
           <span className="tab-icon">
             <Icon name="menu" />
-            {suggestions > 0 && <i className="tab-dot" />}
+            {(suggestions > 0 || pendingAccess > 0) && <i className={`tab-dot${pendingAccess > 0 ? " danger" : ""}`} />}
           </span>
           <span>More</span>
         </button>

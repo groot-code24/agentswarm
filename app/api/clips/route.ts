@@ -35,7 +35,7 @@ export const POST = withUser(async (req, user) => {
   );
   const incoming = body.clips.filter((c) => !existing.has(c.idx)).reduce((n, c) => n + c.bytes, 0);
   const used = await queueBytes(user.id);
-  const cap = queueCapBytes();
+  const cap = await queueCapBytes();
   if (used + incoming > cap) {
     const mb = (n: number) => Math.round(n / 1024 / 1024);
     throw new HttpError(

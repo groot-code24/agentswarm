@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { env } from "@/lib/env";
 import { peekPurpose, readState } from "@/lib/oauth";
-import { audit, isAllowedEmail, startSession } from "@/lib/session";
+import { audit, startSession } from "@/lib/session";
+import { accessStatus, requestAccess } from "@/lib/access";
 import { finishConnect } from "@/lib/connect";
 
 // The one redirect URI registered with Google: handles team login and "Connect YouTube".
@@ -28,7 +29,13 @@ export async function GET(req: Request) {
     const infoRes = await fetch("https://openidconnect.googleapis.com/v1/userinfo", { headers: { Authorization: `Bearer ${access_token}` } });
     const info = (await infoRes.json()) as { email?: string; email_verified?: boolean; name?: string };
     if (!info.email || !info.email_verified) return fail("Your Google account email is not verified.");
-    if (!isAllowedEmail(info.email)) return fail(`${info.email} is not on the team list. Ask the admin to add it to ALLOWED_EMAILS.`);
+    const access = await accessStatus(info.email);
+    if (access === "blocked") return fail(`${info.email} doesn't have access to Clip Autopilot. Contact the admin if you think this is a mistake.`);
+    if (access !== "approved") {
+      // First time (or still waiting): file a request for the admin and explain.
+      await requestAccess(info.email, info.name ?? null);
+      return NextResponse.redirect(`${env.appUrl}/login?requested=${encodeURIComponent(info.email.toLowerCase())}`);
+    }
     await startSession(info.email, info.name ?? null, state.tz ?? null);
     await audit(null, "login", { email: info.email });
     return NextResponse.redirect(`${env.appUrl}/`);

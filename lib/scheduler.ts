@@ -33,6 +33,7 @@ type PostRow = {
   status: string;
   title: string;
   caption: string;
+  tags: string[] | null;
   external_id: string | null;
   container_id: string | null;
   attempts: number;
@@ -137,7 +138,8 @@ async function processYouTube(post: PostRow, account: AccountRow, ctx: Ctx) {
   }
   await setPost(post.id, { status: "uploading" });
   const bytes = await getObject(clip.storage_key);
-  const tags = post.caption.match(/#[\p{L}\p{N}_]+/gu)?.map((t) => t.slice(1)) ?? [];
+  // Keyword tags written for this post; older posts fall back to the caption's hashtags.
+  const tags = post.tags?.length ? post.tags : (post.caption.match(/#[\p{L}\p{N}_]+/gu)?.map((t) => t.slice(1)) ?? []);
   const result = await youtubeUpload(account, {
     bytes,
     contentType: clip.content_type,

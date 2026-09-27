@@ -72,7 +72,7 @@ Clips are stored in the cloud until they're posted (Instagram downloads them fro
 4. **Redeploy** (Deployments → ⋯ → Redeploy). New variables only apply to new deployments.
 5. Optional, to use the same storage locally: copy `BLOB_READ_WRITE_TOKEN` into `.env.local`. Without it, local testing keeps clips on your disk.
 
-The free plan holds about **1 GB** in total, so the app splits 900 MB between the members in `ALLOWED_EMAILS` (2 members → 450 MB each, enough for dozens of clips). Posted clips are deleted after 48 hours, which frees the space again. Hobby projects aren't billed for going over a free allowance; Vercel pauses the feature until it renews instead. Check usage under **Storage → your Blob store**.
+The free plan holds about **1 GB** in total, so the app splits 900 MB between the people who have access (2 members → 450 MB each, enough for dozens of clips). Posted clips are deleted after 48 hours, which frees the space again. Hobby projects aren't billed for going over a free allowance; Vercel pauses the feature until it renews instead. Check usage under **Storage → your Blob store**.
 
 <details>
 <summary>Alternative: Cloudflare R2 (10 GB free, needs a card on file)</summary>
@@ -141,7 +141,25 @@ When the `S3_*` settings are filled in, R2 is used instead of Vercel Blob, and e
 1. Sign up at https://resend.com and create an API key → `RESEND_API_KEY`.
 2. **Add and verify your domain** (Domains → Add, then add the DNS records it shows). Then set `EMAIL_FROM`, e.g. `Clip Autopilot <alerts@yourdomain.com>`.
    - Without a verified domain, Resend's test sender only delivers to your own Resend login email, so teammates wouldn't get their "clips running out" emails.
-3. Set `ADMIN_EMAIL` to receive the daily summary.
+3. `ADMIN_EMAIL` (you) receives the daily summary and the "someone asked for access" emails.
+
+## 5b. Title & caption writer (optional, recommended)
+
+When you choose **"Write them for me"** on the Upload page, every clip gets its own hook title, description,
+keyword tags and 3–5 hashtags. Which writer is used depends on the key you add (in Vercel **and** `.env.local`):
+
+| Key | Writer | Cost | Quality |
+|-----|--------|------|---------|
+| `ANTHROPIC_API_KEY` | Claude looks at 2 frames of every clip | Pay-as-you-go: usually cents per video (set `CLAUDE_MODEL=claude-haiku-4-5-20251001` for the cheapest) | Best |
+| `GEMINI_API_KEY` | Gemini looks at 2 frames of every clip | **Free tier** at https://aistudio.google.com/apikey (no card; daily limits) | Very good |
+| neither | Built-in writer: varied hook titles from your topic | Free | Good |
+
+- Claude: https://console.anthropic.com → **API keys** → create key → `ANTHROPIC_API_KEY`. Default model: `claude-sonnet-5` (change with `CLAUDE_MODEL`).
+- Gemini: https://aistudio.google.com/apikey → **Create API key** → `GEMINI_API_KEY`. Default model: `gemini-flash-latest` (change with `GEMINI_MODEL`).
+- Only two small frames per clip and your topic/title are sent to the AI provider; the video itself isn't.
+- If the AI is unavailable (wrong key, quota), the built-in writer takes over and the Upload page tells you why.
+- Every written title/caption can be changed on **Schedule → Edit text** before it's posted.
+- **Settings → Run live checks** shows which writer is active and a sample title.
 
 ## 6. Deploy on Vercel
 
@@ -149,7 +167,8 @@ When the `S3_*` settings are filled in, R2 is used instead of Vercel Blob, and e
 2. **Settings → Environment Variables**: add everything from `.env.example`, with these values:
    - `APP_URL`: your Vercel address, without a trailing slash.
    - `SESSION_SECRET` and `ENCRYPTION_KEY`: new random values, generated with the commands in step 0. **Never change `ENCRYPTION_KEY` later**, or connected accounts must reconnect.
-   - `ALLOWED_EMAILS`: the team's login emails, comma-separated.
+   - `ADMIN_EMAIL`: **your** Google email. You're the admin: you open **Admin** in the sidebar and approve who may sign in.
+   - `ALLOWED_EMAILS`: optional starting list of people who may sign in (comma-separated). Everyone else signs in with Google, which sends you a request to approve or deny in **Admin**. Access changes there apply immediately, with no redeploy.
    - `CRON_SECRET`: another random value.
    - `DRY_RUN`: `true` for the first deploy.
 3. Deploy. Open the site: if something is missing, the login page lists exactly what.

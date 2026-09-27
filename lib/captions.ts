@@ -49,3 +49,25 @@ export function buildInstagramCaption(opts: {
     .join("\n\n")
     .slice(0, 2200);
 }
+
+// ---------- Optimized text (from lib/seo.ts) ----------
+
+type SeoText = {
+  youtube: { title: string; description: string; tags: string[] };
+  instagram: { caption: string };
+  hashtags: string[];
+};
+
+export function buildOptimizedYouTube(seo: SeoText, opts: { vertical: boolean; duration: number }) {
+  // "#Shorts" goes in the description (not the title), so the title keeps all its room for keywords.
+  const shorts = opts.vertical && opts.duration <= 180 ? ["#Shorts"] : [];
+  const hashtags = [...new Set([...shorts, ...seo.hashtags])];
+  const description = [seo.youtube.description, hashtags.join(" ")].filter(Boolean).join("\n\n").slice(0, 5000);
+  const tags = [...new Set([...seo.youtube.tags, ...seo.hashtags.map((h) => h.slice(1))])];
+  return { title: seo.youtube.title.slice(0, 100), description, tags };
+}
+
+export function buildOptimizedInstagram(seo: SeoText, opts: { part: number; totalParts: number }) {
+  const series = opts.totalParts > 1 ? `Part ${opts.part}/${opts.totalParts} · follow so you don't miss the next one` : "";
+  return [seo.instagram.caption, series, seo.hashtags.join(" ")].filter(Boolean).join("\n\n").slice(0, 2200);
+}

@@ -2,6 +2,7 @@ import { env, features } from "./env";
 import { query, queryOne } from "./db";
 import { deleteObject, objectSize, presignGet, presignPut, putObject, storageBackend } from "./storage";
 import { randomToken } from "./crypto";
+import { pingSeoEngine } from "./seo";
 
 // Live setup checks: each one talks to the real service with harmless requests
 // (a test query, a tiny test file, a deliberately invalid login code) and explains
@@ -100,6 +101,18 @@ export async function runChecks(requestOrigin: string | null): Promise<Check[]> 
         status: "ok",
         detail: `Client ID and secret are valid. Make sure this redirect URI is listed in Google Cloud (it serves both sign-in and Connect YouTube): ${env.appUrl}/api/auth/google/callback`,
       };
+    }),
+
+    run("Title & caption writer", async () => {
+      if (features.seoEngine === "rules") {
+        return {
+          status: "warn",
+          detail: "Using the built-in writer (titles from your topic). For titles written from what's in each clip, add ANTHROPIC_API_KEY or a free GEMINI_API_KEY (SETUP.md step 5b).",
+        };
+      }
+      const title = await pingSeoEngine();
+      const name = features.seoEngine === "claude" ? `Claude (${env.claudeModel})` : `Gemini (${env.geminiModel})`;
+      return { status: "ok", detail: `${name} works. Sample title: "${title}"` };
     }),
 
     run("Instagram", async () => {

@@ -5,6 +5,7 @@ import { env } from "@/lib/env";
 import { queryOne } from "@/lib/db";
 import { currentUser } from "@/lib/session";
 import Sidebar from "@/components/Sidebar";
+import { isAdmin, pendingCount } from "@/lib/access";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-sans", display: "swap" });
 
@@ -25,6 +26,9 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   const user = await currentUser().catch(() => null);
   let openSuggestions = 0;
   let attention = 0;
+  let pendingAccess = 0;
+  const admin = user ? isAdmin(user.email) : false;
+  if (admin) pendingAccess = await pendingCount();
   if (user) {
     const counts = await queryOne<{ s: number; a: number }>(
       `SELECT (SELECT COUNT(*)::int FROM suggestions WHERE user_id = $1 AND status = 'proposed') AS s,
@@ -39,7 +43,15 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       <body>
         {user ? (
           <div className="shell">
-            <Sidebar name={user.name ?? ""} email={user.email} suggestions={openSuggestions} attention={attention} dryRun={env.dryRun} />
+            <Sidebar
+              name={user.name ?? ""}
+              email={user.email}
+              suggestions={openSuggestions}
+              attention={attention}
+              dryRun={env.dryRun}
+              isAdmin={admin}
+              pendingAccess={pendingAccess}
+            />
             <div className="content">{children}</div>
           </div>
         ) : (

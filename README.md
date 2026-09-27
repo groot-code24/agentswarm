@@ -30,6 +30,7 @@ YouTube API audit), the Meta app for Instagram, Resend, Vercel and a free per-mi
 Every service used has a free plan.
 
 The reasoning, platform rules and decisions are in [docs/PLATFORM_PLAN.md](docs/PLATFORM_PLAN.md).
+What to build next to grow on Instagram: [docs/INSTAGRAM_GROWTH_ROADMAP.md](docs/INSTAGRAM_GROWTH_ROADMAP.md).
 
 ## Development
 

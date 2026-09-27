@@ -22,6 +22,7 @@ type Row = {
   platform: string;
   account_name: string;
   title: string;
+  caption: string;
   status: string;
   scheduled_at: Date;
   published_at: Date | null;
@@ -37,7 +38,7 @@ export default async function SchedulePage({ searchParams }: { searchParams: Pro
   const filter = (raw && raw in FILTERS ? raw : "upcoming") as keyof typeof FILTERS;
   const f = FILTERS[filter];
   const rows = await query<Row>(
-    `SELECT p.id, p.platform, a.name AS account_name, p.title, p.status, p.scheduled_at, p.published_at, p.permalink, p.last_error, p.attempts,
+    `SELECT p.id, p.platform, a.name AS account_name, p.title, p.caption, p.status, p.scheduled_at, p.published_at, p.permalink, p.last_error, p.attempts,
             (SELECT views::int FROM metric_snapshots m WHERE m.post_id = p.id ORDER BY hours_after DESC LIMIT 1) AS views
        FROM posts p JOIN connected_accounts a ON a.id = p.account_id
       WHERE p.user_id = $1 AND ${f.where}
@@ -63,7 +64,7 @@ export default async function SchedulePage({ searchParams }: { searchParams: Pro
     [user.id],
   );
   const used = await queueBytes(user.id);
-  const cap = queueCapBytes();
+  const cap = await queueCapBytes();
   const mb = (n: number) => `${Math.round(n / 1024 / 1024)} MB`;
   const count = (k: keyof typeof FILTERS) =>
     k === "all" ? counts.reduce((n, c) => n + c.n, 0) : counts.find((c) => c.k === (k === "attention" ? "needs_attention" : k))?.n ?? 0;
@@ -157,7 +158,15 @@ export default async function SchedulePage({ searchParams }: { searchParams: Pro
                   </td>
                   <td data-label="Views" className="num">{fmtNum(p.views)}</td>
                   <td style={{ whiteSpace: "nowrap" }}>
-                    <PostActions id={p.id} status={p.status} scheduledAt={new Date(p.scheduled_at).toISOString()} tz={user.timezone} />
+                    <PostActions
+                      id={p.id}
+                      status={p.status}
+                      scheduledAt={new Date(p.scheduled_at).toISOString()}
+                      tz={user.timezone}
+                      platform={p.platform}
+                      title={p.title}
+                      caption={p.caption}
+                    />
                   </td>
                 </tr>
               ))}

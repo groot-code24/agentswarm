@@ -4,6 +4,7 @@ import { SignJWT, jwtVerify } from "jose";
 import { DateTime } from "luxon";
 import { env } from "./env";
 import { newId, query, queryOne } from "./db";
+import { allowedBy, canSignIn, isAdmin, type AccessStatus } from "./access";
 
 const COOKIE = "ca_session";
 const MAX_AGE = 60 * 60 * 24 * 30; // 30 days
@@ -26,14 +27,12 @@ function secret() {
   return new TextEncoder().encode(env.sessionSecret);
 }
 
-export function isAllowedEmail(email: string): boolean {
-  return env.allowedEmails.includes(email.trim().toLowerCase());
-}
+export { isAdmin };
 
-/** Creates the user on first login (allowlisted emails only) and sets the session cookie. */
+/** Creates the user on first login (approved people only) and sets the session cookie. */
 export async function startSession(email: string, name: string | null, timezone: string | null) {
   const normalized = email.trim().toLowerCase();
-  if (!isAllowedEmail(normalized)) throw new Error("This email is not on the team list.");
+  if (!(await canSignIn(normalized))) throw new Error("This email doesn't have access yet. Ask the admin to approve it.");
   const tz = timezone && DateTime.local().setZone(timezone).isValid ? timezone : "UTC";
   const user = await queryOne<{ id: string }>(
     `INSERT INTO users (id, email, name, timezone) VALUES ($1, $2, $3, $4)
@@ -59,12 +58,15 @@ export async function currentUser(): Promise<User | null> {
   if (!token) return null;
   try {
     const { payload } = await jwtVerify(token, secret());
-    const user = await queryOne<User>(
-      "SELECT id, email, name, timezone, low_stock_days, prefs FROM users WHERE id = $1",
+    const row = await queryOne<User & { access: AccessStatus | null }>(
+      `SELECT u.id, u.email, u.name, u.timezone, u.low_stock_days, u.prefs, a.status AS access
+         FROM users u LEFT JOIN access_list a ON a.email = u.email WHERE u.id = $1`,
       [payload.uid],
     );
-    // Someone removed from ALLOWED_EMAILS loses access immediately.
-    if (!user || !isAllowedEmail(user.email)) return null;
+    // Access removed in the Admin panel takes effect on the very next request.
+    if (!row || !allowedBy(row.email, row.access)) return null;
+    const { access: _access, ...user } = row;
+    void _access;
     return user;
   } catch {
     return null;
@@ -75,6 +77,13 @@ export async function currentUser(): Promise<User | null> {
 export async function requireUser(): Promise<User> {
   const user = await currentUser();
   if (!user) redirect("/login");
+  return user;
+}
+
+/** For admin pages: members who aren't admins are sent to the dashboard. */
+export async function requireAdmin(): Promise<User> {
+  const user = await requireUser();
+  if (!isAdmin(user.email)) redirect("/");
   return user;
 }
 

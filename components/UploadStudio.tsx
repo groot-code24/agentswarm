@@ -7,11 +7,15 @@ import { api } from "./api";
 import Icon from "./Icon";
 import type { UploadTarget } from "@/lib/storage";
 import { Splitter, SplitCancelled, planRanges, probeDuration, mimeFor, type SplitClip } from "@/lib/splitter-client";
+import { captureFrames } from "@/lib/frames-client";
 
 type Account = { id: string; platform: "youtube" | "instagram"; name: string; status: string };
 type Prefs = { recommendedClipLength?: number; recommendedFormat?: "original" | "vertical" };
 type Mode = "automation" | "manual";
 type Format = "original" | "vertical";
+type SeoMode = "optimize" | "as_written";
+type SeoEngine = "claude" | "gemini" | "rules";
+const ENGINE_LABEL: Record<SeoEngine, string> = { claude: "Claude AI", gemini: "Gemini AI", rules: "built-in writer" };
 
 type ClipItem = SplitClip & {
   url: string;
@@ -21,6 +25,8 @@ type ClipItem = SplitClip & {
   postResult?: { platform: string; status: string; permalink: string | null; last_error: string | null }[];
   postError?: string;
   selectedAccounts?: string[];
+  seoTitle?: string;
+  seoHashtags?: string[];
 };
 
 type AccountPlan = {
@@ -66,7 +72,14 @@ function fmtSpan(sec: number) {
   return h ? `${h}h ${String(m).padStart(2, "0")}m` : `${m}m ${String(s).padStart(2, "0")}s`;
 }
 
-export default function UploadStudio(props: { accounts: Account[]; prefs: Prefs; queueUsed: number; queueCap: number; timezone: string }) {
+export default function UploadStudio(props: {
+  accounts: Account[];
+  prefs: Prefs;
+  queueUsed: number;
+  queueCap: number;
+  timezone: string;
+  seoEngine: SeoEngine;
+}) {
   const { accounts, prefs, timezone } = props;
   const okAccounts = accounts.filter((a) => a.status === "ok");
 
@@ -81,6 +94,10 @@ export default function UploadStudio(props: { accounts: Account[]; prefs: Prefs;
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [hashtags, setHashtags] = useState("");
+  const [seoMode, setSeoMode] = useState<SeoMode | null>(null);
+  const [topic, setTopic] = useState("");
+  const [language, setLanguage] = useState("");
+  const [seoWarning, setSeoWarning] = useState("");
 
   // ----- progress -----
   type Phase = "setup" | "splitting" | "split" | "uploading" | "planned" | "scheduled";
@@ -106,7 +123,12 @@ export default function UploadStudio(props: { accounts: Account[]; prefs: Prefs;
 
   const busy = phase === "splitting" || phase === "uploading";
   const ready =
-    Boolean(file) && clipLength != null && format != null && mode != null && (mode === "manual" || (accountIds.length > 0 && postsPerDay != null));
+    Boolean(file) &&
+    clipLength != null &&
+    format != null &&
+    mode != null &&
+    seoMode != null &&
+    (mode === "manual" || (accountIds.length > 0 && postsPerDay != null));
 
   // Warn before leaving while work would be lost.
   useEffect(() => {
@@ -231,6 +253,9 @@ export default function UploadStudio(props: { accounts: Account[]; prefs: Prefs;
       title,
       description,
       hashtags,
+      seoMode,
+      topic,
+      language,
     });
     sourceRef.current = id;
     return id;
@@ -282,6 +307,35 @@ export default function UploadStudio(props: { accounts: Account[]; prefs: Prefs;
     return ids;
   }
 
+  // Optimized titles/descriptions/tags: a few clips per request, each with two small frames.
+  async function writeSeo(source: string, items: ClipItem[], ids: Map<number, string>, quiet = false) {
+    const todo = items.filter((c) => ids.has(c.index) && !c.seoTitle);
+    const BATCH = 6;
+    let done = 0;
+    for (let i = 0; i < todo.length; i += BATCH) {
+      const batch = todo.slice(i, i + BATCH);
+      if (!quiet) setStatus(`Writing titles, descriptions & tags (${ENGINE_LABEL[props.seoEngine]})… ${done}/${todo.length}`);
+      const payload = [];
+      for (const c of batch) {
+        payload.push({ clipId: ids.get(c.index)!, frames: props.seoEngine === "rules" ? [] : await captureFrames(c.url) });
+      }
+      const res = await api<{ warning: string | null; clips: { clipId: string; title: string; hashtags: string[] }[] }>("/api/seo", "POST", {
+        sourceVideoId: source,
+        clips: payload,
+      });
+      if (res.warning) setSeoWarning(res.warning);
+      const byIndex = new Map(batch.map((c) => [c.index, res.clips.find((r) => r.clipId === ids.get(c.index))]));
+      setClips(
+        (prev) =>
+          (clipsRef.current = prev.map((c) => {
+            const r = byIndex.get(c.index);
+            return r ? { ...c, seoTitle: r.title, seoHashtags: r.hashtags } : c;
+          })),
+      );
+      done += batch.length;
+    }
+  }
+
   async function uploadAndPlan(totalDuration: number) {
     setPhase("uploading");
     setError("");
@@ -300,7 +354,8 @@ export default function UploadStudio(props: { accounts: Account[]; prefs: Prefs;
       setStatus(`Uploading ${fits.length} clips to the cloud...`);
       const source = await ensureSource(totalDuration);
       let done = 0;
-      await uploadClips(source, fits, () => setUploadInfo((u) => ({ ...u, done: ++done })));
+      const ids = await uploadClips(source, fits, () => setUploadInfo((u) => ({ ...u, done: ++done })));
+      if (seoMode === "optimize") await writeSeo(source, fits, ids);
       setStatus("Working out the best posting times...");
       const { plans } = await api<{ plans: AccountPlan[] }>("/api/plan", "POST", { sourceVideoId: source, commit: false });
       setPlans(plans);
@@ -339,6 +394,7 @@ export default function UploadStudio(props: { accounts: Account[]; prefs: Prefs;
       const source = await ensureSource(durRef.current);
       let clipId = clip.clipId;
       if (!clipId) clipId = (await uploadClips(source, [clip])).get(clip.index);
+      if (seoMode === "optimize" && !clip.seoTitle && clipId) await writeSeo(source, [clip], new Map([[clip.index, clipId]]), true);
       const { posts } = await api<{ posts: ClipItem["postResult"] }>("/api/post-now", "POST", { clipId, accountIds: chosen });
       updateClip(clip.index, { postState: "done", postResult: posts, clipId });
     } catch (err) {
@@ -472,6 +528,7 @@ export default function UploadStudio(props: { accounts: Account[]; prefs: Prefs;
                 <option value="2">2 per day</option>
                 <option value="3">3 per day</option>
                 <option value="4">4 per day</option>
+                <option value="5">5 per day</option>
               </select>
               {postsPerDay && expectedClips ? (
                 <div className="small muted" style={{ marginTop: 6 }}>
@@ -483,9 +540,55 @@ export default function UploadStudio(props: { accounts: Account[]; prefs: Prefs;
         )}
 
         {mode && (
+          <div className="field">
+            <span>Titles, descriptions &amp; tags</span>
+            <div className="choice-row">
+              <label className="choice">
+                <input type="radio" name="seo" checked={seoMode === "optimize"} onChange={() => setSeoMode("optimize")} />
+                Write them for me, optimized for views ({ENGINE_LABEL[props.seoEngine]})
+              </label>
+              <label className="choice">
+                <input type="radio" name="seo" checked={seoMode === "as_written"} onChange={() => setSeoMode("as_written")} />
+                Use my title &amp; description as written
+              </label>
+            </div>
+            {seoMode === "optimize" && (
+              <div className="small muted" style={{ marginTop: 6 }}>
+                {props.seoEngine === "rules" ? (
+                  <>
+                    Each clip gets its own hook title, description, keyword tags and 3–5 hashtags, built from your topic. For titles written
+                    from what&apos;s actually in each clip, add a Claude or free Gemini key (SETUP.md, step 5b).
+                  </>
+                ) : (
+                  <>
+                    {ENGINE_LABEL[props.seoEngine]} looks at two frames of every clip and writes its own hook title, description, keyword tags
+                    and 3–5 hashtags. You can edit any of them on the Schedule page before they go out.
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {mode && seoMode === "optimize" && (
           <div className="two-col">
             <label className="field">
-              <span>Title (optional; &quot;Part 1, 2, …&quot; is added automatically)</span>
+              <span>What is the video about? (names, show, game, niche: helps pick keywords)</span>
+              <input type="text" maxLength={200} value={topic} placeholder="e.g. Frozen 2 best scenes, Elsa and Anna" onChange={(e) => setTopic(e.target.value)} />
+            </label>
+            <label className="field">
+              <span>Language of titles &amp; captions (optional)</span>
+              <input type="text" maxLength={40} value={language} placeholder="English, Hindi, Hinglish…" onChange={(e) => setLanguage(e.target.value)} />
+            </label>
+          </div>
+        )}
+
+        {mode && (
+          <div className="two-col">
+            <label className="field">
+              <span>
+                {seoMode === "optimize" ? "Series title (optional, used as context)" : "Title (optional; \"Part 1, 2, …\" is added automatically)"}
+              </span>
               <input type="text" maxLength={80} value={title} placeholder={file ? file.name.replace(/\.[^.]+$/, "") : "Video title"} onChange={(e) => setTitle(e.target.value)} />
             </label>
             <label className="field">
@@ -493,7 +596,7 @@ export default function UploadStudio(props: { accounts: Account[]; prefs: Prefs;
               <input type="text" value={hashtags} placeholder="#cricket #ipl2026 #highlights" onChange={(e) => setHashtags(e.target.value)} />
             </label>
             <label className="field" style={{ gridColumn: "1 / -1" }}>
-              <span>Description / caption (optional)</span>
+              <span>{seoMode === "optimize" ? "Anything the captions should mention? (optional)" : "Description / caption (optional)"}</span>
               <textarea value={description} maxLength={2000} onChange={(e) => setDescription(e.target.value)} />
             </label>
           </div>
@@ -526,6 +629,12 @@ export default function UploadStudio(props: { accounts: Account[]; prefs: Prefs;
               <div className="progress" style={{ marginTop: 6 }}><div style={{ width: `${uploadInfo.total ? (uploadInfo.done / uploadInfo.total) * 100 : 0}%` }} /></div>
             </div>
           )}
+        </div>
+      )}
+      {seoWarning && (
+        <div className="notice warn">
+          <Icon name="alert" size={18} />
+          <div>Title writer: {seoWarning}</div>
         </div>
       )}
       {error && (
@@ -567,11 +676,15 @@ export default function UploadStudio(props: { accounts: Account[]; prefs: Prefs;
               <details>
                 <summary className="small">Show every post time</summary>
                 <div className="small" style={{ columns: "220px", marginTop: 6 }}>
-                  {p.slots.map((s) => (
-                    <div key={s.clipIndex}>
-                      Clip {s.clipIndex + 1}: {DateTime.fromISO(s.at).setZone(timezone).toFormat("ccc d LLL, HH:mm")}
-                    </div>
-                  ))}
+                  {p.slots.map((s) => {
+                    const t = clips.find((c) => c.index === s.clipIndex)?.seoTitle;
+                    return (
+                      <div key={s.clipIndex} style={{ breakInside: "avoid", marginBottom: 4 }}>
+                        Clip {s.clipIndex + 1}: {DateTime.fromISO(s.at).setZone(timezone).toFormat("ccc d LLL, HH:mm")}
+                        {t && <div className="muted">✨ {t}</div>}
+                      </div>
+                    );
+                  })}
                 </div>
               </details>
             </div>
@@ -666,6 +779,12 @@ function ClipCard(props: {
           </div>
           {clip.uploaded && <span className="badge ok">in cloud</span>}
         </div>
+        {clip.seoTitle && (
+          <div className="small" style={{ color: "var(--text-2)" }}>
+            ✨ {clip.seoTitle}
+            {clip.seoHashtags?.length ? <div className="muted">{clip.seoHashtags.join(" ")}</div> : null}
+          </div>
+        )}
         <div className="row">
           <button className="small" onClick={props.onDownload}>⬇ Download</button>
           {props.manual && props.accounts.length > 0 && !clip.postState && (

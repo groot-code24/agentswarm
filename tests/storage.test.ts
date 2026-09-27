@@ -35,7 +35,7 @@ describe("storage backend", () => {
     vi.stubEnv("BLOB_READ_WRITE_TOKEN", "vercel_blob_rw_teststore123_secretsecretsecret");
     vi.stubEnv("ALLOWED_EMAILS", "a@x.com,b@x.com,c@x.com");
     const { queueCapBytes } = await import("../lib/schedule");
-    expect(queueCapBytes()).toBe(Math.floor((900 * 1024 * 1024) / 3));
+    expect(await queueCapBytes()).toBe(Math.floor((900 * 1024 * 1024) / 3));
   });
 
   it("prefers R2 when both are configured", async () => {
@@ -47,7 +47,7 @@ describe("storage backend", () => {
     const { storageBackend } = await import("../lib/storage");
     const { queueCapBytes } = await import("../lib/schedule");
     expect(storageBackend()).toBe("s3");
-    expect(queueCapBytes()).toBe(1024 * 1024 * 1024);
+    expect(await queueCapBytes()).toBe(1024 * 1024 * 1024);
   });
 
   it("reports a missing clip file clearly, and treats deleting it as done", async () => {

@@ -7,7 +7,7 @@ export type Stage = "default" | "audience" | "own-results";
 export type HourScores = number[];
 
 export const MIN_POSTS_PER_DAY = 2;
-export const MAX_POSTS_PER_DAY = 4;
+export const MAX_POSTS_PER_DAY = 5;
 // Never schedule at night: posts go out between 07:00 and 23:00 local time.
 const WINDOW_START = 7;
 const WINDOW_END = 23;

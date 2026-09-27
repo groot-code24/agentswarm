@@ -13,9 +13,9 @@ describe("pickDailyHours", () => {
     }
   });
 
-  it("never goes below 2 or above 4 per day", () => {
+  it("never goes below 2 or above 5 per day", () => {
     expect(pickDailyHours(defaultScores(), 1)).toHaveLength(2);
-    expect(pickDailyHours(defaultScores(), 9)).toHaveLength(4);
+    expect(pickDailyHours(defaultScores(), 9)).toHaveLength(5);
   });
 
   it("defaults to lunch and evening peaks", () => {

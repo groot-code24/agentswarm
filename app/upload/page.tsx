@@ -1,7 +1,7 @@
 import { requireUser } from "@/lib/session";
 import { listAccounts } from "@/lib/accounts";
 import { queueBytes, queueCapBytes } from "@/lib/schedule";
-import { env } from "@/lib/env";
+import { env, features } from "@/lib/env";
 import { storageBackend } from "@/lib/storage";
 import UploadStudio from "@/components/UploadStudio";
 import Icon from "@/components/Icon";
@@ -14,7 +14,7 @@ export default async function UploadPage() {
   const user = await requireUser();
   const accounts = (await listAccounts(user.id)).map((a) => ({ id: a.id, platform: a.platform, name: a.name, status: a.status }));
   const used = await queueBytes(user.id);
-  const cap = queueCapBytes();
+  const cap = await queueCapBytes();
   const mb = (n: number) => `${Math.round(n / 1024 / 1024)} MB`;
   // A local copy keeping clips on this computer's disk while using the shared (live) database:
   // the live site's scheduler can't reach those files.
@@ -45,8 +45,9 @@ export default async function UploadPage() {
         accounts={accounts}
         prefs={user.prefs || {}}
         queueUsed={used}
-        queueCap={queueCapBytes()}
+        queueCap={cap}
         timezone={user.timezone}
+        seoEngine={features.seoEngine}
       />
     </main>
   );

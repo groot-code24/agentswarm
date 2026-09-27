@@ -18,6 +18,10 @@ const Body = z.object({
   title: z.string().max(90).default(""),
   description: z.string().max(2000).default(""),
   hashtags: z.string().max(500).default(""),
+  // "optimize": titles/descriptions/tags are written per clip (lib/seo.ts); "as_written": the member's own text.
+  seoMode: z.enum(["optimize", "as_written"]),
+  topic: z.string().max(200).default(""),
+  language: z.string().max(40).default(""),
 });
 
 export const POST = withUser(async (req, user) => {
@@ -30,8 +34,9 @@ export const POST = withUser(async (req, user) => {
   }
   const id = newId();
   await query(
-    `INSERT INTO source_videos (id, user_id, filename, duration, mode, account_ids, clip_length, format, posts_per_day, title, description, hashtags)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+    `INSERT INTO source_videos (id, user_id, filename, duration, mode, account_ids, clip_length, format, posts_per_day, title, description, hashtags,
+                                seo_mode, topic, language)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
     [
       id,
       user.id,
@@ -45,6 +50,9 @@ export const POST = withUser(async (req, user) => {
       body.title,
       body.description,
       body.hashtags,
+      body.seoMode,
+      body.topic.trim(),
+      body.language.trim(),
     ],
   );
   return NextResponse.json({ id });
