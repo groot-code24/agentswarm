@@ -31,6 +31,8 @@ export const env = {
   s3AccessKeyId: process.env.S3_ACCESS_KEY_ID || "",
   s3SecretAccessKey: process.env.S3_SECRET_ACCESS_KEY || "",
   s3Region: process.env.S3_REGION || "auto",
+  // Vercel Blob (free on the Hobby plan, no card): added automatically when a Blob store is connected to the project.
+  blobToken: process.env.BLOB_READ_WRITE_TOKEN || "",
 
   resendApiKey: process.env.RESEND_API_KEY || "",
   emailFrom: process.env.EMAIL_FROM || "Clip Autopilot <onboarding@resend.dev>",
@@ -44,6 +46,7 @@ export const features = {
   googleLogin: Boolean(env.googleClientId && env.googleClientSecret),
   instagram: Boolean(env.instagramAppId && env.instagramAppSecret),
   s3: Boolean(env.s3Endpoint && env.s3Bucket && env.s3AccessKeyId && env.s3SecretAccessKey),
+  blob: Boolean(env.blobToken),
   email: Boolean(env.resendApiKey),
   // Email-only sign-in without Google, for local development only.
   devLogin: !isProd && !(env.googleClientId && env.googleClientSecret),
@@ -57,9 +60,12 @@ export function configProblems(): string[] {
   if (env.allowedEmails.length === 0) problems.push("ALLOWED_EMAILS is empty, so nobody can log in.");
   if (isProd) {
     if (!env.databaseUrl) problems.push("DATABASE_URL is required in production.");
-    if (!features.s3) {
-      const missing = (["S3_ENDPOINT", "S3_BUCKET", "S3_ACCESS_KEY_ID", "S3_SECRET_ACCESS_KEY"] as const).filter((k) => !process.env[k]);
-      problems.push(`Clip storage (Cloudflare R2) is not set up. Missing in Vercel: ${missing.join(", ")}. See SETUP.md step 2.`);
+    if (!features.s3 && !features.blob) {
+      problems.push(
+        process.env.BLOB_STORE_ID
+          ? "Vercel Blob is connected, but BLOB_READ_WRITE_TOKEN is missing. Copy it from the Blob store's settings into the project's environment variables (SETUP.md step 2)."
+          : "Clip storage is not set up. In Vercel: Storage → Create → Blob (free) → connect it to this project, then redeploy. See SETUP.md step 2.",
+      );
     }
     if (!features.googleLogin) problems.push("GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET are required in production.");
     if (!env.cronSecret) problems.push("CRON_SECRET is required in production.");

@@ -1,6 +1,6 @@
 import { requireUser } from "@/lib/session";
 import { listAccounts } from "@/lib/accounts";
-import { QUEUE_CAP_BYTES, queueBytes } from "@/lib/schedule";
+import { queueBytes, queueCapBytes } from "@/lib/schedule";
 import UploadStudio from "@/components/UploadStudio";
 
 export const dynamic = "force-dynamic";
@@ -21,7 +21,7 @@ export default async function UploadPage() {
         accounts={accounts}
         prefs={user.prefs || {}}
         queueUsed={await queueBytes(user.id)}
-        queueCap={QUEUE_CAP_BYTES}
+        queueCap={queueCapBytes()}
         timezone={user.timezone}
       />
     </main>

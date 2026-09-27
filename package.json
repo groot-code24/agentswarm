@@ -19,6 +19,7 @@
     "@aws-sdk/s3-request-presigner": "^3.1141.0",
     "@electric-sql/pglite": "^0.5.8",
     "@neondatabase/serverless": "^1.1.0",
+    "@vercel/blob": "^2.8.0",
     "client-zip": "^2.5.1",
     "jose": "^6.2.12",
     "luxon": "^3.7.2",

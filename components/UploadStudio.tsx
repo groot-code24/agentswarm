@@ -5,6 +5,7 @@ import Link from "next/link";
 import { DateTime } from "luxon";
 import { api } from "./api";
 import Icon from "./Icon";
+import type { UploadTarget } from "@/lib/storage";
 import { Splitter, SplitCancelled, planRanges, probeDuration, mimeFor, type SplitClip } from "@/lib/splitter-client";
 
 type Account = { id: string; platform: "youtube" | "instagram"; name: string; status: string };
@@ -236,7 +237,7 @@ export default function UploadStudio(props: { accounts: Account[]; prefs: Prefs;
   }
 
   async function uploadClips(source: string, items: ClipItem[], onEach?: () => void): Promise<Map<number, string>> {
-    const { clips: registered } = await api<{ clips: { idx: number; clipId: string; uploadUrl: string }[] }>("/api/clips", "POST", {
+    const { clips: registered } = await api<{ clips: { idx: number; clipId: string; upload: UploadTarget }[] }>("/api/clips", "POST", {
       sourceVideoId: source,
       clips: items.map((c) => ({
         idx: c.index,
@@ -254,8 +255,22 @@ export default function UploadStudio(props: { accounts: Account[]; prefs: Prefs;
     const worker = async () => {
       for (let r = queue.shift(); r; r = queue.shift()) {
         const clip = byIdx.get(r.idx)!;
-        const res = await fetch(r.uploadUrl, { method: "PUT", body: clip.blob, headers: { "Content-Type": clip.blob.type || mimeFor(clip.ext) } });
-        if (!res.ok) throw new Error(`Upload of clip ${r.idx + 1} failed (${res.status}). Check the storage CORS settings.`);
+        const contentType = clip.blob.type || mimeFor(clip.ext);
+        if (r.upload.kind === "vercel-blob") {
+          // Vercel Blob: upload with the short-lived token the server issued for exactly this file.
+          const { put } = await import("@vercel/blob/client");
+          await put(r.upload.pathname, clip.blob, {
+            access: "public",
+            token: r.upload.token,
+            contentType,
+            multipart: clip.blob.size > 100 * 1024 * 1024,
+          }).catch((err: Error) => {
+            throw new Error(`Upload of clip ${r.idx + 1} failed: ${err.message}`);
+          });
+        } else {
+          const res = await fetch(r.upload.url, { method: "PUT", body: clip.blob, headers: { "Content-Type": contentType } });
+          if (!res.ok) throw new Error(`Upload of clip ${r.idx + 1} failed (${res.status}). Check the storage CORS settings.`);
+        }
         onEach?.();
       }
     };

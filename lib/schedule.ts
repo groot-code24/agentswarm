@@ -6,9 +6,18 @@ import { bestTimes, listAccounts } from "./accounts";
 import { planSlots, formatHours, type Stage } from "./planner";
 import { buildInstagramCaption, buildYouTubeText } from "./captions";
 import type { AccountRow } from "./platforms/types";
+import { env } from "./env";
+import { storageBackend } from "./storage";
 
-// Per-member limit on clips waiting in storage (keeps a 5–10 person team inside the free 10 GB).
-export const QUEUE_CAP_BYTES = 1024 * 1024 * 1024;
+const MB = 1024 * 1024;
+/**
+ * Most clip bytes one member may have waiting in storage. Vercel Blob's free plan holds about
+ * 1 GB for the whole team, so there the space is shared out between the members.
+ */
+export function queueCapBytes(): number {
+  if (storageBackend() !== "blob") return 1024 * MB;
+  return Math.floor((900 * MB) / Math.max(1, env.allowedEmails.length));
+}
 export const ACTIVE_POST_STATUSES = ["queued", "uploading", "processing"];
 
 export type SourceVideo = {

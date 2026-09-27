@@ -48,7 +48,7 @@ After filling in values, restart `npm run dev` and run:
 npm run check        # or: Settings → System status → "Run live checks"
 ```
 
-It tests each real service with harmless requests: the Neon round-trip, an R2 write/read/delete plus a browser-upload (CORS) test, the
+It tests each real service with harmless requests: the Neon round-trip, a storage write/read/delete (plus the public-link test for Blob, or the browser-upload CORS test for R2), the
 Google and Instagram app credentials, the Resend domain and the scheduler heartbeat. It then tells you exactly what to fix.
 Nothing is posted.
 
@@ -61,18 +61,26 @@ Nothing is posted.
 
 The tables are created automatically on first use.
 
-## 2. Clip storage: Cloudflare R2 (free 10 GB, free downloads)
+## 2. Clip storage: Vercel Blob (free, no card)
+
+Clips are stored in the cloud until they're posted (Instagram downloads them from a link), then deleted automatically.
+
+1. Open your project on https://vercel.com → **Storage** tab → **Create Database** → **Blob** → **Continue**.
+2. Give it a name (e.g. `clips`). If it asks about access, choose **Public**: Instagram must be able to download clips. Clip links contain long random IDs, so nobody can guess them.
+3. **Connect** it to this project with all environments ticked. Vercel adds `BLOB_READ_WRITE_TOKEN` to the project's environment variables by itself.
+   - Check under **Settings → Environment Variables** that `BLOB_READ_WRITE_TOKEN` is there. If you only see `BLOB_STORE_ID`, open the Blob store → **Settings**/**.env.local** tab, copy the `BLOB_READ_WRITE_TOKEN` line, and add it yourself.
+4. **Redeploy** (Deployments → ⋯ → Redeploy). New variables only apply to new deployments.
+5. Optional, to use the same storage locally: copy `BLOB_READ_WRITE_TOKEN` into `.env.local`. Without it, local testing keeps clips on your disk.
+
+The free plan holds about **1 GB** in total, so the app splits 900 MB between the members in `ALLOWED_EMAILS` (2 members → 450 MB each, enough for dozens of clips). Posted clips are deleted after 48 hours, which frees the space again. Hobby projects aren't billed for going over a free allowance; Vercel pauses the feature until it renews instead. Check usage under **Storage → your Blob store**.
+
+<details>
+<summary>Alternative: Cloudflare R2 (10 GB free, needs a card on file)</summary>
 
 1. Go to https://dash.cloudflare.com → **R2** → **Create bucket** (e.g. `clip-autopilot`). Save the name as `S3_BUCKET`.
-2. Go to **R2 → Manage R2 API tokens → Create API token**:
-   - permission: **Object Read & Write**
-   - scope: this bucket only
-3. Copy the keys:
-   - Access Key ID → `S3_ACCESS_KEY_ID`
-   - Secret Access Key → `S3_SECRET_ACCESS_KEY`
-   - S3 endpoint `https://<ACCOUNT_ID>.r2.cloudflarestorage.com` → `S3_ENDPOINT`
-4. Set `S3_REGION=auto`.
-5. Open the bucket → **Settings → CORS policy** and paste this. It lets browsers upload clips directly:
+2. Go to **R2 → Manage R2 API tokens → Create API token** with permission **Object Read & Write**, scoped to this bucket only.
+3. Copy the Access Key ID → `S3_ACCESS_KEY_ID`, the Secret Access Key → `S3_SECRET_ACCESS_KEY`, and the endpoint `https://<ACCOUNT_ID>.r2.cloudflarestorage.com` → `S3_ENDPOINT`. Set `S3_REGION=auto`.
+4. Open the bucket → **Settings → CORS policy** and paste:
 
 ```json
 [
@@ -84,6 +92,9 @@ The tables are created automatically on first use.
   }
 ]
 ```
+
+When the `S3_*` settings are filled in, R2 is used instead of Vercel Blob, and each member gets 1 GB.
+</details>
 
 ## 3. Google: team login + YouTube
 
@@ -180,7 +191,8 @@ For on-time posting, use a free external cron:
 
 | Symptom | Fix |
 |---------|-----|
-| Upload fails with "Check the storage CORS settings" | Add your exact `APP_URL` to the R2 CORS policy (step 2). |
+| Login page says "Clip storage is not set up" | Create and connect a Vercel Blob store, then redeploy (step 2). |
+| Upload fails with "Check the storage CORS settings" | R2 only: add your exact `APP_URL` to the R2 CORS policy (step 2). |
 | Google says "Error 400: redirect_uri_mismatch" | The `redirect_uri` in the error must be in the client's Authorized redirect URIs (step 3.6), in the same client as `GOOGLE_CLIENT_ID`. Wait ~5 minutes after saving. |
 | YouTube videos are Private | The YouTube audit (step 3.8) hasn't passed yet. |
 | "This Instagram account is a personal account" | Switch it to a Professional account, then connect again. |

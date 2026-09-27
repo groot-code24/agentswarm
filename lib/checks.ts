@@ -1,6 +1,7 @@
 import { env, features } from "./env";
 import { query, queryOne } from "./db";
-import { deleteObject, objectSize, presignPut, putObject } from "./storage";
+import { deleteObject, objectSize, presignGet, presignPut, putObject, storageBackend } from "./storage";
+import { randomToken } from "./crypto";
 
 // Live setup checks: each one talks to the real service with harmless requests
 // (a test query, a tiny test file, a deliberately invalid login code) and explains
@@ -41,12 +42,29 @@ export async function runChecks(requestOrigin: string | null): Promise<Check[]> 
     }),
 
     run("Clip storage", async () => {
-      const key = `_checks/${Date.now()}.txt`;
-      await putObject(key, Buffer.from("ok"), "text/plain");
+      const backend = storageBackend();
+      const key = `_checks/${Date.now()}-${randomToken(8)}.txt`;
+      try {
+        await putObject(key, Buffer.from("ok"), "text/plain");
+      } catch (err) {
+        if (backend !== "blob") throw err;
+        return {
+          status: "fail",
+          detail: `Vercel Blob refused a test upload (${(err as Error).message}). The store must allow Public access, because Instagram downloads clips from their links.`,
+        };
+      }
       const size = await objectSize(key);
+      // Instagram fetches clips from a plain link, so check that the link really serves the file.
+      const link = size === 2 && backend !== "local" ? await fetch(await presignGet(key, 600), { cache: "no-store" }).catch(() => null) : null;
       await deleteObject(key);
       if (size !== 2) return { status: "fail", detail: "Wrote a test file but couldn't read it back." };
-      if (!features.s3) return { status: "warn", detail: "Local disk works, but production needs an R2 bucket (S3_* settings)." };
+      if (backend === "local") {
+        return { status: env.isProd ? "fail" : "warn", detail: "Local disk works, but production needs Vercel Blob (free) or an R2 bucket (SETUP.md step 2)." };
+      }
+      if (!link?.ok) return { status: "fail", detail: `Stored a test file, but its download link returned ${link?.status ?? "no response"}. Instagram couldn't fetch clips.` };
+      if (backend === "blob") {
+        return { status: "ok", detail: "Vercel Blob: write, public link, read and delete all work. Browsers upload with short-lived tokens (no CORS setup needed)." };
+      }
       // Browsers upload clips straight to R2, which only works with a CORS rule for our address.
       const url = await presignPut(`_checks/cors-${Date.now()}.mp4`, "video/mp4");
       const pre = await fetch(url, {

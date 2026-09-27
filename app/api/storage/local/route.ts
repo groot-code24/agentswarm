@@ -1,11 +1,10 @@
-import { features } from "@/lib/env";
-import { readLocal, verifyLocalUrl, writeLocal } from "@/lib/storage";
+import { readLocal, storageBackend, verifyLocalUrl, writeLocal } from "@/lib/storage";
 
-// Local development storage (used only when no S3/R2 bucket is configured).
+// Local development storage (used only when neither R2 nor Vercel Blob is configured).
 // URLs are signed and expire, like real pre-signed bucket URLs.
 
 function check(req: Request, op: "put" | "get") {
-  if (features.s3) return "Local storage is disabled when a bucket is configured.";
+  if (storageBackend() !== "local") return "Local storage is disabled when cloud storage is configured.";
   const q = new URL(req.url).searchParams;
   if (q.get("op") !== op || !verifyLocalUrl(op, q.get("key") || "", q.get("exp") || "", q.get("sig") || "")) return "Invalid or expired link.";
   return null;

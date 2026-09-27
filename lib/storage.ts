@@ -3,12 +3,23 @@ import { dirname, join, resolve } from "node:path";
 import { env, features } from "./env";
 import { sign, verifySignature } from "./crypto";
 
-// Clip storage. Production: any S3-compatible bucket (Cloudflare R2 recommended).
-// Local dev: files under .data/storage, served through signed /api/storage/local URLs.
-// Browsers upload directly with pre-signed URLs, so video bytes never pass through
-// our functions (Vercel caps request bodies at ~4.5 MB).
+// Clip storage, one of three backends:
+//  - "s3":   any S3-compatible bucket (Cloudflare R2), when the S3_* settings are present
+//  - "blob": Vercel Blob (free on the Hobby plan), when BLOB_READ_WRITE_TOKEN is present
+//  - "local": files under .data/storage, served through signed /api/storage/local URLs (local dev)
+// Browsers upload straight to storage (pre-signed URL or short-lived Blob token), so video bytes
+// never pass through our functions (Vercel caps request bodies at ~4.5 MB).
+// Blob clips are public objects at unguessable paths: Instagram must be able to download them.
 
 const LOCAL_ROOT = resolve(".data/storage");
+
+export type StorageBackend = "s3" | "blob" | "local";
+export function storageBackend(): StorageBackend {
+  return features.s3 ? "s3" : features.blob ? "blob" : "local";
+}
+
+/** How the browser uploads one clip: PUT to a URL, or the Vercel Blob client with a token. */
+export type UploadTarget = { kind: "url"; url: string } | { kind: "vercel-blob"; pathname: string; token: string };
 
 async function s3() {
   const { S3Client } = await import("@aws-sdk/client-s3");
@@ -40,8 +51,24 @@ export function verifyLocalUrl(op: string, key: string, exp: string, sig: string
   return Number(exp) * 1000 > Date.now() && verifySignature(`${op}:${key}:${exp}`, sig);
 }
 
+export async function uploadTarget(key: string, contentType: string, bytes: number): Promise<UploadTarget> {
+  if (storageBackend() !== "blob") return { kind: "url", url: await presignPut(key, contentType) };
+  const { generateClientTokenFromReadWriteToken } = await import("@vercel/blob/client");
+  const token = await generateClientTokenFromReadWriteToken({
+    token: env.blobToken,
+    pathname: key,
+    allowedContentTypes: [contentType],
+    maximumSizeInBytes: bytes,
+    validUntil: Date.now() + 3600_000,
+    addRandomSuffix: false,
+    allowOverwrite: true, // a retried upload replaces the half-finished one
+  });
+  return { kind: "vercel-blob", pathname: key, token };
+}
+
+/** Pre-signed PUT URL (S3 or local only; Vercel Blob uses uploadTarget tokens). */
 export async function presignPut(key: string, contentType: string): Promise<string> {
-  if (!features.s3) return localUrl("put", key, 3600);
+  if (storageBackend() === "local") return localUrl("put", key, 3600);
   const { PutObjectCommand } = await import("@aws-sdk/client-s3");
   const { getSignedUrl } = await import("@aws-sdk/s3-request-presigner");
   return getSignedUrl(await s3(), new PutObjectCommand({ Bucket: env.s3Bucket, Key: key, ContentType: contentType }), {
@@ -49,16 +76,27 @@ export async function presignPut(key: string, contentType: string): Promise<stri
   });
 }
 
-/** A temporary public link. Instagram downloads the clip from it when publishing. */
+/** A link Instagram (and our own server) can download the clip from. */
 export async function presignGet(key: string, expiresSec = 3 * 3600): Promise<string> {
-  if (!features.s3) return localUrl("get", key, expiresSec);
+  const backend = storageBackend();
+  if (backend === "local") return localUrl("get", key, expiresSec);
+  if (backend === "blob") {
+    const { head } = await import("@vercel/blob");
+    return (await head(key, { token: env.blobToken })).url;
+  }
   const { GetObjectCommand } = await import("@aws-sdk/client-s3");
   const { getSignedUrl } = await import("@aws-sdk/s3-request-presigner");
   return getSignedUrl(await s3(), new GetObjectCommand({ Bucket: env.s3Bucket, Key: key }), { expiresIn: expiresSec });
 }
 
 export async function getObject(key: string): Promise<Buffer> {
-  if (!features.s3) return readFile(localPath(key));
+  const backend = storageBackend();
+  if (backend === "local") return readFile(localPath(key));
+  if (backend === "blob") {
+    const res = await fetch(await presignGet(key), { cache: "no-store" });
+    if (!res.ok) throw new Error(`Couldn't download the clip from Vercel Blob (${res.status}).`);
+    return Buffer.from(await res.arrayBuffer());
+  }
   const { GetObjectCommand } = await import("@aws-sdk/client-s3");
   const res = await (await s3()).send(new GetObjectCommand({ Bucket: env.s3Bucket, Key: key }));
   return Buffer.from(await res.Body!.transformToByteArray());
@@ -66,7 +104,12 @@ export async function getObject(key: string): Promise<Buffer> {
 
 export async function objectSize(key: string): Promise<number | null> {
   try {
-    if (!features.s3) return (await readFile(localPath(key))).length;
+    const backend = storageBackend();
+    if (backend === "local") return (await readFile(localPath(key))).length;
+    if (backend === "blob") {
+      const { head } = await import("@vercel/blob");
+      return (await head(key, { token: env.blobToken })).size;
+    }
     const { HeadObjectCommand } = await import("@aws-sdk/client-s3");
     const res = await (await s3()).send(new HeadObjectCommand({ Bucket: env.s3Bucket, Key: key }));
     return res.ContentLength ?? null;
@@ -76,8 +119,14 @@ export async function objectSize(key: string): Promise<number | null> {
 }
 
 export async function deleteObject(key: string): Promise<void> {
-  if (!features.s3) {
+  const backend = storageBackend();
+  if (backend === "local") {
     await rm(localPath(key), { force: true });
+    return;
+  }
+  if (backend === "blob") {
+    const { del } = await import("@vercel/blob");
+    await del(key, { token: env.blobToken });
     return;
   }
   const { DeleteObjectCommand } = await import("@aws-sdk/client-s3");
@@ -96,8 +145,14 @@ export async function readLocal(key: string): Promise<Buffer> {
 
 /** Server-side write, used only by the setup checks. */
 export async function putObject(key: string, data: Buffer, contentType: string): Promise<void> {
-  if (!features.s3) {
+  const backend = storageBackend();
+  if (backend === "local") {
     await writeLocal(key, data);
+    return;
+  }
+  if (backend === "blob") {
+    const { put } = await import("@vercel/blob");
+    await put(key, data, { access: "public", contentType, addRandomSuffix: false, allowOverwrite: true, token: env.blobToken });
     return;
   }
   const { PutObjectCommand } = await import("@aws-sdk/client-s3");

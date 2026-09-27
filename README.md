@@ -25,7 +25,7 @@ npm run tick                   # second terminal: runs the scheduler every minut
 
 ## Going live
 
-Follow **[SETUP.md](SETUP.md)**. It covers Neon, Cloudflare R2, Google (login + YouTube, plus the
+Follow **[SETUP.md](SETUP.md)**. It covers Neon, Vercel Blob (or Cloudflare R2), Google (login + YouTube, plus the
 YouTube API audit), the Meta app for Instagram, Resend, Vercel and a free per-minute cron.
 Every service used has a free plan.
 
