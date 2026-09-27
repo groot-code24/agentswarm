@@ -16,5 +16,7 @@ export async function api<T = unknown>(url: string, method: string, body?: unkno
     if (res.status === 401) window.location.href = "/login";
     throw new Error(msg);
   }
+  // Every API route answers with JSON; anything else (e.g. an HTML 404 page) means the route is missing.
+  if (data === null) throw new Error(`The server gave an unexpected answer for ${url}. Is this route deployed?`);
   return data as T;
 }

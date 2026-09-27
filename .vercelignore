@@ -2,11 +2,11 @@
 app.py
 requirements.txt
 run.bat
-templates/
-clips/
-uploads/
-venv/
-ffmpeg_bin/
+/templates/
+/clips/
+/uploads/
+/venv/
+/ffmpeg_bin/
 public/vendor/
 node_modules/
 .data/
